@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# PATTERN 1 — Hosted SaaS (OpenAI).
+# Apply AFTER the operator is installed and the OLSConfig CRD exists:
+#   oc apply -k base/lightspeed-operator   # then wait for the CSV/CRD
+#   oc create secret generic openai-api-keys -n openshift-lightspeed --from-literal=apitoken=sk-...
+#   oc apply -k overlays/saas-openai
+resources:
+  - olsconfig.yaml
+
+# Optional features. Comment out any you do not want for a given demo.
+components:
+  - ../../components/route
+  - ../../components/query-filters
+  - ../../components/token-quota
+  - ../../components/agent-troubleshooting

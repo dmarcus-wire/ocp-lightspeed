@@ -1,0 +1,41 @@
+apiVersion: ols.openshift.io/v1alpha1
+kind: OLSConfig
+metadata:
+  name: cluster
+spec:
+  ols:
+    # Cluster interaction: installs the in-cluster Kubernetes MCP server and lets
+    # the model (in Agent mode) call read-only tools to inspect live cluster state.
+    # This is what turns generic "Ask" answers into environment-aware
+    # "Troubleshooting" answers ("why is THIS pod failing?").
+    # introspectionEnabled defaults to true; set explicitly to make intent clear.
+    introspectionEnabled: true
+    mcpKubeServerConfig:
+      timeout: 60
+    # Approval strategy for tool execution:
+    #   tool_annotations - read tools run freely, write tools need approval (safe default)
+    #   never            - all tools run without approval (smoothest hands-off demo)
+    #   always           - every tool call requires approval
+    toolsApprovalConfig:
+      approvalType: tool_annotations
+      approvalTimeout: 600
+    # Max agent tool-calling iterations per question. Bump up for multi-step
+    # troubleshooting; larger models handle more iterations well.
+    maxIterations: 10
+    # --- BYO knowledge (RAG): scaffolded but DISABLED (no document store yet) ---
+    # Point Lightspeed at your own docs packaged as a RAG container image to ground
+    # answers in your runbooks instead of just public OpenShift docs.
+    # rag:
+    #   - image: quay.io/YOUR_ORG/YOUR_RAG_IMAGE:latest
+    #     indexPath: /rag/vector_db
+    #     indexID: your-docs-index
+    # byokRAGOnly: false   # set true to ignore the built-in OpenShift docs RAG
+# --- External MCP servers: scaffolded but DISABLED ---
+# To add MCP servers beyond the built-in Kubernetes one, enable the feature gate
+# and list them here. The built-in introspection server above does NOT need this.
+# featureGates:
+#   - MCPServer
+# mcpServers:
+#   - name: external-mcp
+#     url: https://mcp.example.com
+#     timeout: 30

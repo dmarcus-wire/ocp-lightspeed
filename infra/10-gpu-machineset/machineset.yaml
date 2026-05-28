@@ -1,0 +1,70 @@
+# ============================================================================
+# AUTO-GENERATED TEMPLATE — do not apply as-is.
+# `provision.sh` / `make gpu-machineset INSTANCE=<type>` OVERWRITES this file by
+# cloning an existing worker MachineSet from the live cluster, so all the
+# cluster-specific AWS values (infra ID, region, AZ, AMI, subnet, security group,
+# IAM profile) come from YOUR cluster — never hardcoded here.
+#
+# The tokens below (__INFRA_ID__, __AZ__, __REGION__, __AMI__, __SUBNET__,
+# __SG__, __INSTANCE_TYPE__) are placeholders so this file is valid YAML and
+# kustomize can render it; they are replaced at generation time.
+# ============================================================================
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+  name: __INFRA_ID__-gpu-__AZ__
+  namespace: openshift-machine-api
+  labels:
+    machine.openshift.io/cluster-api-cluster: __INFRA_ID__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      machine.openshift.io/cluster-api-cluster: __INFRA_ID__
+      machine.openshift.io/cluster-api-machineset: __INFRA_ID__-gpu-__AZ__
+  template:
+    metadata:
+      labels:
+        machine.openshift.io/cluster-api-cluster: __INFRA_ID__
+        machine.openshift.io/cluster-api-machine-role: worker
+        machine.openshift.io/cluster-api-machine-type: worker
+        machine.openshift.io/cluster-api-machineset: __INFRA_ID__-gpu-__AZ__
+    spec:
+      metadata:
+        labels:
+          # Convenience label so you can target GPU nodes; NFD + the GPU operator
+          # add the real nvidia.com/gpu.* labels once the node is up.
+          node-role.kubernetes.io/gpu: ""
+      providerSpec:
+        value:
+          apiVersion: machine.openshift.io/v1beta1
+          kind: AWSMachineProviderConfig
+          instanceType: __INSTANCE_TYPE__
+          ami:
+            id: __AMI__
+          blockDevices:
+            - ebs:
+                volumeSize: 120
+                volumeType: gp3
+          credentialsSecret:
+            name: aws-cloud-credentials
+          iamInstanceProfile:
+            id: __INFRA_ID__-worker-profile
+          placement:
+            availabilityZone: __AZ__
+            region: __REGION__
+          securityGroups:
+            - filters:
+                - name: tag:Name
+                  values:
+                    - __SG__
+          subnet:
+            filters:
+              - name: tag:Name
+                values:
+                  - __SUBNET__
+          tags:
+            - name: kubernetes.io/cluster/__INFRA_ID__
+              value: owned
+          userDataSecret:
+            name: worker-user-data

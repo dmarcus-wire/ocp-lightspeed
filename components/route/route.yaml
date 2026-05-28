@@ -1,0 +1,20 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: lightspeed-app-server
+  namespace: openshift-lightspeed
+  labels:
+    app.kubernetes.io/part-of: openshift-lightspeed
+spec:
+  to:
+    kind: Service
+    name: lightspeed-app-server
+  port:
+    targetPort: 8443
+  tls:
+    # The lightspeed-app-server Service is fronted by an OpenShift service
+    # serving certificate, so the edge->backend hop is HTTPS: use reencrypt.
+    termination: reencrypt
+    insecureEdgeTerminationPolicy: Redirect
+  # No host is set, so OpenShift assigns <name>-<ns>.<apps-domain> automatically.
+  # This keeps the manifest cluster-agnostic (the apps domain differs per cluster).

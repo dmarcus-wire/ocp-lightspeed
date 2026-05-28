@@ -1,0 +1,30 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: vllm-runtime
+  namespace: lightspeed-llm
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    openshift.io/display-name: "vLLM (OpenAI-compatible)"
+spec:
+  multiModel: false
+  supportedModelFormats:
+    - name: vLLM
+      autoSelect: true
+  containers:
+    - name: kserve-container
+      # RHOAI's supported vLLM runtime image. Verify the tag matches your RHOAI
+      # version; provision.sh resolves the exact supported image from the cluster's
+      # bundled ServingRuntime template (oc get template -n redhat-ods-applications).
+      image: quay.io/modh/vllm:rhoai-2.20-cuda
+      command:
+        - python
+        - -m
+        - vllm.entrypoints.openai.api_server
+      args:
+        - "--port=8080"
+        - "--model=/mnt/models"
+      ports:
+        - containerPort: 8080
+          protocol: TCP

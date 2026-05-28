@@ -1,0 +1,35 @@
+apiVersion: ols.openshift.io/v1alpha1
+kind: OLSConfig
+metadata:
+  # OLSConfig is cluster-scoped and the name MUST be "cluster".
+  name: cluster
+spec:
+  llm:
+    providers:
+      - name: rhoai
+        type: rhoai_vllm
+        # The vLLM InferenceService endpoint. MUST end in /v1.
+        # This placeholder is replaced at apply time from the live cluster
+        # (provision.sh / `make selfhosted` read the host and patch it):
+        #   oc get inferenceservice -n lightspeed-llm -o jsonpath='{.items[0].status.url}'
+        url: https://REPLACE-INFERENCE-HOST/v1
+        # Secret created out-of-band in openshift-lightspeed, key: apitoken
+        #   oc create secret generic rhoai-vllm-token -n openshift-lightspeed \
+        #     --from-literal=apitoken=<vllm-bearer-token>
+        credentialsSecretRef:
+          name: rhoai-vllm-token
+        models:
+          # Must match the served model name (--served-model-name) from infra/60.
+          - name: gpt-oss-20b
+            # contextWindowSize matches the runtime's --max-model-len (infra/60).
+            # 24k fits a bf16 8B's KV cache on one L4 while still holding the MCP
+            # tool catalog + prompt + answer in agent mode (budget ~11k).
+            contextWindowSize: 24576
+            parameters:
+              # Bound the answer so a verbose/reasoning model (gpt-oss reasons,
+              # then writes long YAML) returns before the console stops waiting —
+              # OLSConfig exposes no LLM-query timeout. Raise if answers truncate.
+              maxTokensForResponse: 1024
+  ols:
+    defaultProvider: rhoai
+    defaultModel: gpt-oss-20b

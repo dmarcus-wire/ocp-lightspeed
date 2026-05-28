@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Shared install of the Red Hat OpenShift Lightspeed operator. Applied first,
+# before any OLSConfig, because the ols.openshift.io CRD is only registered once
+# the operator's CSV reaches Succeeded.
+resources:
+  - namespace.yaml
+  - operatorgroup.yaml
+  - subscription.yaml

@@ -1,0 +1,9 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: global-operators
+  namespace: openshift-operators
+# openshift-operators ships with a global OperatorGroup by default; this file is
+# only here so `oc apply -k` is self-contained on clusters where it is missing.
+# Applying it when it already exists is a harmless no-op.
+spec: {}

@@ -1,0 +1,16 @@
+apiVersion: controller.devfile.io/v1alpha1
+kind: DevWorkspaceOperatorConfig
+metadata:
+  # The DevWorkspace Operator (bundled with the Web Terminal Operator) watches a
+  # config object with THIS exact name in its install namespace.
+  name: devworkspace-operator-config
+  namespace: openshift-operators
+config:
+  workspace:
+    # Persist /home/user across web-terminal restarts by backing it with a PVC, so
+    # a `git clone` (and shell history) survives the terminal idling out — no more
+    # re-cloning every session. Requires DevWorkspace Operator 0.26+ (OpenShift 4.16+).
+    persistUserHome:
+      enabled: true
+    # Keep the terminal alive much longer before idle-stop (default is 15m).
+    idleTimeout: 4h

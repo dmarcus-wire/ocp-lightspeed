@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Optional: install the Web Terminal Operator so demo users get an in-console,
+# already-authenticated terminal with oc/kubectl preloaded. Most clusters already
+# have the global OperatorGroup in openshift-operators, so the Subscription alone
+# is usually enough; the OperatorGroup is included for self-contained apply.
+resources:
+  - operatorgroup.yaml
+  - subscription.yaml
+
+# NOTE: devworkspace-config.yaml is intentionally NOT listed above — it needs the
+# DevWorkspaceOperatorConfig CRD, which only exists after the operator installs.
+# Apply it as a second step to make the terminal's home dir (and your git clone)
+# persist across sessions:
+#   oc apply -f bootstrap/web-terminal/devworkspace-config.yaml

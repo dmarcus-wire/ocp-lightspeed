@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# GPU worker MachineSet. The machineset.yaml here is a template; generate the
+# real one first with `make gpu-machineset INSTANCE=g6.xlarge` (or via provision.sh).
+resources:
+  - machineset.yaml

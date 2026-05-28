@@ -1,0 +1,55 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: gpt-oss-20b
+  namespace: lightspeed-llm
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    openshift.io/display-name: gpt-oss-20b
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    # Recreate (not RollingUpdate): with a single GPU the old pod holds the only
+    # nvidia.com/gpu, so a surge-based rollout deadlocks — the new pod can't
+    # schedule ("Insufficient nvidia.com/gpu") until the old one releases it.
+    # Recreate tears the old pod down first (brief downtime), then starts the new.
+    deploymentStrategy:
+      type: Recreate
+    minReplicas: 1
+    model:
+      modelFormat:
+        name: vLLM
+      runtime: vllm-runtime
+      # Red Hat validated model as a ModelCar OCI image (public quay catalog,
+      # no pull secret needed). Swap the tag to change models (see README matrix):
+      #   granite-3.3-8b-instruct | llama-3.1-8b-instruct | qwen3-14b | gpt-oss-20b ...
+      storageUri: oci://quay.io/redhat-ai-services/modelcar-catalog:gpt-oss-20b
+      args:
+        # served-model-name MUST match the OLSConfig models[].name in the overlay.
+        - "--served-model-name=gpt-oss-20b"
+        # 24k leaves room for the MCP tool catalog (~6k) + prompt + answer in agent
+        # mode while fitting the KV cache on a single L4 (24 GB). 32k OOMs a full
+        # bf16 8B (e.g. granite, ~15 GiB weights → only ~4.3 GiB KV free, needs 5).
+        # A quantized model (gpt-oss MXFP4 ~13.7 GiB) has room for more if you raise it.
+        - "--max-model-len=24576"
+        # Use more of the L4 for KV cache; the daemonset/runtime overhead is small.
+        - "--gpu-memory-utilization=0.95"
+        # provision.sh replaces the next line with --enable-auto-tool-choice + a
+        # model-specific --tool-call-parser (granite|hermes|llama3_json) for agent
+        # mode, or drops it for runtimes that enable tools implicitly (e.g. gpt-oss).
+        # __TOOL_ARGS__
+      resources:
+        # Requests must leave headroom for node-reserved capacity + the GPU/NFD/
+        # monitoring daemonsets, or the predictor stays Pending ("Insufficient
+        # cpu/memory"). Sized for g6.2xlarge (8 vCPU / 32 GiB); the model itself
+        # runs in the L4's 24GB VRAM, so host cpu/memory only cover vLLM overhead
+        # and weight loading.
+        requests:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "6"
+          memory: 24Gi
+          nvidia.com/gpu: "1"

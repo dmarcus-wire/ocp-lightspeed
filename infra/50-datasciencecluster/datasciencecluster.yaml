@@ -1,0 +1,35 @@
+apiVersion: datasciencecluster.opendatahub.io/v1
+kind: DataScienceCluster
+metadata:
+  name: default-dsc
+spec:
+  components:
+    kserve:
+      managementState: Managed
+      # RawDeployment = plain Kubernetes Deployments/Services for model serving;
+      # no Knative Serverless or Service Mesh required.
+      defaultDeploymentMode: RawDeployment
+      serving:
+        managementState: Removed
+        name: knative-serving
+    dashboard:
+      managementState: Managed
+    # Everything else is Removed to keep the install lean and fast for the demo.
+    modelmeshserving:
+      managementState: Removed
+    workbenches:
+      managementState: Removed
+    datasciencepipelines:
+      managementState: Removed
+    kueue:
+      managementState: Removed
+    codeflare:
+      managementState: Removed
+    ray:
+      managementState: Removed
+    trainingoperator:
+      managementState: Removed
+    trustyai:
+      managementState: Removed
+    modelregistry:
+      managementState: Removed
