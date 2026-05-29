@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Exposes the in-cluster OLS API (lightspeed-app-server:8443) through an external
+# OpenShift Route so you can curl it or wire other clients to it during a demo.
+resources:
+  - route.yaml

@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Red Hat OpenShift AI (RHOAI) operator. After the CSV is Succeeded it provides
+# the DataScienceCluster / DSCInitialization CRDs used in layer 50.
+resources:
+  - namespace.yaml
+  - operatorgroup.yaml
+  - subscription.yaml

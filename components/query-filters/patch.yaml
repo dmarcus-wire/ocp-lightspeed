@@ -1,0 +1,17 @@
+apiVersion: ols.openshift.io/v1alpha1
+kind: OLSConfig
+metadata:
+  name: cluster
+spec:
+  ols:
+    # Regex filters applied to the user's question BEFORE it is sent to the LLM.
+    # Matches are replaced with the placeholder text. Useful for scrubbing PII or
+    # internal identifiers, especially in the SaaS pattern where text leaves the cluster.
+    # NOTE: this does NOT cover content returned by MCP/introspection tools.
+    queryFilters:
+      - name: redact-email
+        pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        replaceWith: "[REDACTED-EMAIL]"
+      - name: redact-internal-host
+        pattern: '\b[a-z0-9-]+\.internal\.example\.com\b'
+        replaceWith: "[REDACTED-HOST]"

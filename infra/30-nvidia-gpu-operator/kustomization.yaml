@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# NVIDIA GPU operator + ClusterPolicy. Installs the GPU driver/toolkit/device
+# plugin so pods can request nvidia.com/gpu. Requires NFD (layer 20) and at least
+# one GPU node (layer 10).
+# NOTE: apply the operator first, wait for the clusterpolicies CRD, then the CR —
+# `make infra` / provision.sh handle that ordering.
+resources:
+  - namespace.yaml
+  - operatorgroup.yaml
+  - subscription.yaml
+  - clusterpolicy.yaml

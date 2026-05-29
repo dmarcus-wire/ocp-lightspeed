@@ -1,0 +1,23 @@
+apiVersion: ols.openshift.io/v1alpha1
+kind: OLSConfig
+metadata:
+  # OLSConfig is cluster-scoped and the name MUST be "cluster".
+  name: cluster
+spec:
+  llm:
+    providers:
+      - name: openai
+        type: openai
+        url: https://api.openai.com/v1
+        # Secret created out-of-band in openshift-lightspeed, key: apitoken
+        #   oc create secret generic openai-api-keys -n openshift-lightspeed \
+        #     --from-literal=apitoken=sk-...
+        credentialsSecretRef:
+          name: openai-api-keys
+        models:
+          - name: gpt-4o
+          # Cheaper alternative (weaker tool selection for Troubleshooting mode):
+          # - name: gpt-4o-mini
+  ols:
+    defaultProvider: openai
+    defaultModel: gpt-4o

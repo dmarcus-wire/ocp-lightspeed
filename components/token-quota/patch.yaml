@@ -1,0 +1,24 @@
+apiVersion: ols.openshift.io/v1alpha1
+kind: OLSConfig
+metadata:
+  name: cluster
+spec:
+  ols:
+    # Token quota limits cap how many LLM tokens can be spent per user and across
+    # the whole cluster within a rolling window. Good for demoing cost control
+    # (SaaS) or protecting a self-hosted model from exhaustion.
+    quotaHandlersConfig:
+      enableTokenHistory: true
+      limitersConfig:
+        # Per-user daily budget; resets/increases by quotaIncrease each period.
+        - name: user-daily
+          type: user_limiter
+          initialQuota: 1000000
+          quotaIncrease: 100000
+          period: "1 day"
+        # Cluster-wide monthly ceiling across all users.
+        - name: cluster-monthly
+          type: cluster_limiter
+          initialQuota: 20000000
+          quotaIncrease: 2000000
+          period: "30 days"

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lightspeed-llm
+  labels:
+    # Marks this as an OpenShift AI data-science project and tells KServe (not
+    # ModelMesh) to manage serving in this namespace.
+    opendatahub.io/dashboard: "true"
+    modelmesh-enabled: "false"

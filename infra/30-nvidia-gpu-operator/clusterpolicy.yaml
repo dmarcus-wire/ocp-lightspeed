@@ -1,0 +1,47 @@
+apiVersion: nvidia.com/v1
+kind: ClusterPolicy
+metadata:
+  name: gpu-cluster-policy
+spec:
+  # Sensible defaults: the operator deploys the driver (using the OpenShift driver
+  # toolkit), the container toolkit, and the device plugin. NFD is provided by
+  # layer 20, so it is disabled here.
+  # The canonical, version-matched default for your cluster can also be generated
+  # from the installed CSV: provision.sh reads it from
+  #   oc get csv -n nvidia-gpu-operator -l operators.coreos.com/gpu-operator-certified.nvidia-gpu-operator \
+  #     -o jsonpath='{.items[0].metadata.annotations.alm-examples}'
+  operator:
+    defaultRuntime: crio
+    use_ocp_driver_toolkit: true
+  daemonsets:
+    updateStrategy: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: "1"
+  driver:
+    enabled: true
+    upgradePolicy:
+      autoUpgrade: true
+  toolkit:
+    enabled: true
+  devicePlugin:
+    enabled: true
+  dcgm:
+    enabled: true
+  dcgmExporter:
+    enabled: true
+  gfd:
+    enabled: true
+  migManager:
+    enabled: true
+  nodeStatusExporter:
+    enabled: true
+  mig:
+    strategy: single
+  validator:
+    plugin:
+      env:
+        - name: WITH_WORKLOAD
+          value: "false"
+  nfd:
+    # NFD is installed separately in layer 20.
+    enabled: false

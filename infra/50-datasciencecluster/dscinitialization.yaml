@@ -1,0 +1,16 @@
+apiVersion: dscinitialization.opendatahub.io/v1
+kind: DSCInitialization
+metadata:
+  name: default-dsci
+spec:
+  applicationsNamespace: redhat-ods-applications
+  monitoring:
+    managementState: Managed
+    namespace: redhat-ods-applications
+  # Service Mesh is Removed because we run KServe in RawDeployment mode, which does
+  # not require Istio/Service Mesh or Serverless — far fewer moving parts for a demo.
+  serviceMesh:
+    managementState: Removed
+  trustedCABundle:
+    managementState: Managed
+    customCABundle: ""

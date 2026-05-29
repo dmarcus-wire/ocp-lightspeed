@@ -1,0 +1,24 @@
+apiVersion: nfd.openshift.io/v1
+kind: NodeFeatureDiscovery
+metadata:
+  name: nfd-instance
+  namespace: openshift-nfd
+spec:
+  # operand.image is intentionally omitted: the NFD operator defaults it to the
+  # operand image that matches the operator version, keeping this cluster-agnostic.
+  operand:
+    imagePullPolicy: IfNotPresent
+  workerConfig:
+    configData: |
+      core:
+        sleepInterval: 60s
+      sources:
+        pci:
+          deviceClassWhitelist:
+            - "0200"
+            - "03"
+            - "12"
+          deviceLabelFields:
+            - "vendor"
+  # Adds the feature.node.kubernetes.io/pci-10de.present=true label on nodes that
+  # have an NVIDIA (vendor 0x10de) PCI device — the GPU operator keys off this.

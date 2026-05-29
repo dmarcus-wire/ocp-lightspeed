@@ -1,0 +1,34 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: gpt-oss-20b
+  namespace: lightspeed-llm
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    openshift.io/display-name: gpt-oss-20b
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    minReplicas: 1
+    model:
+      modelFormat:
+        name: vLLM
+      runtime: vllm-runtime
+      # Red Hat validated model as a ModelCar OCI image (public quay catalog,
+      # no pull secret needed). Swap the tag to change models (see README matrix):
+      #   granite-3.3-8b-instruct | llama-3.1-8b-instruct | qwen3-14b | gpt-oss-20b ...
+      storageUri: oci://quay.io/redhat-ai-services/modelcar-catalog:gpt-oss-20b
+      args:
+        # served-model-name MUST match the OLSConfig models[].name in the overlay.
+        - "--served-model-name=gpt-oss-20b"
+        - "--max-model-len=8192"
+      resources:
+        requests:
+          cpu: "4"
+          memory: 16Gi
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "8"
+          memory: 24Gi
+          nvidia.com/gpu: "1"

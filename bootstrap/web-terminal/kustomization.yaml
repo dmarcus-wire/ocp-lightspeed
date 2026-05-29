@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Optional: install the Web Terminal Operator so demo users get an in-console,
+# already-authenticated terminal with oc/kubectl preloaded. Most clusters already
+# have the global OperatorGroup in openshift-operators, so the Subscription alone
+# is usually enough; the OperatorGroup is included for self-contained apply.
+resources:
+  - operatorgroup.yaml
+  - subscription.yaml

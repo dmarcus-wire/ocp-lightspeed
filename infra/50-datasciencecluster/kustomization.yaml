@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Configures OpenShift AI for single-model serving via KServe (RawDeployment).
+# The RHOAI operator auto-creates a default DSCInitialization; we apply our own to
+# pin serviceMesh=Removed for RawDeployment. Requires the RHOAI CRDs (layer 40).
+resources:
+  - dscinitialization.yaml
+  - datasciencecluster.yaml

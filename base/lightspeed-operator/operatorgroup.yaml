@@ -1,0 +1,10 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-lightspeed
+  namespace: openshift-lightspeed
+spec:
+  # The Lightspeed operator only supports the OwnNamespace install mode,
+  # so the OperatorGroup must target its own namespace.
+  targetNamespaces:
+    - openshift-lightspeed

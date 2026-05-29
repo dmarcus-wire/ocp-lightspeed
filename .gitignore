@@ -1,0 +1,6 @@
+# Never commit credentials or cluster access files
+*.env
+*credentials*
+kubeconfig
+*.kubeconfig
+.DS_Store

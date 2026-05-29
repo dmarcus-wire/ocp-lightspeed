@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# PATTERN 2 — Self-hosted (OpenShift AI / vLLM).
+# Prerequisites: the full GPU + model-serving stack from infra/10..60 is up and
+# the InferenceService is READY, the operator is installed, and the rhoai-vllm-token
+# secret exists. Then:
+#   oc apply -k overlays/self-hosted-rhoai
+#   # set the real inference URL (provision.sh / `make selfhosted` do this for you):
+#   oc patch olsconfig cluster --type=merge -p \
+#     '{"spec":{"llm":{"providers":[{"name":"rhoai","type":"rhoai_vllm","credentialsSecretRef":{"name":"rhoai-vllm-token"},"models":[{"name":"gpt-oss-20b"}],"url":"https://<host>/v1"}]}}}'
+resources:
+  - olsconfig.yaml
+
+# Optional features. Comment out any you do not want for a given demo.
+components:
+  - ../../components/route
+  - ../../components/query-filters
+  - ../../components/token-quota
+  - ../../components/agent-troubleshooting
