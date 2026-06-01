@@ -31,7 +31,7 @@ ALL_FEATURES="route query-filters token-quota agent-troubleshooting"
 # Defaults (overridable by flags / env)
 PATTERN="${PATTERN:-}"
 MODEL="${MODEL:-gpt-oss-20b}"
-INSTANCE="${INSTANCE:-g6.xlarge}"
+INSTANCE="${INSTANCE:-g6.2xlarge}"   # 8 vCPU / 32 GiB, 1x L4 24GB. g6.xlarge (4/16) is too small to schedule a 20B predictor.
 FEATURES="${FEATURES:-}"
 OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 RHOAI_VLLM_TOKEN="${RHOAI_VLLM_TOKEN:-}"
@@ -153,7 +153,7 @@ ensure_rhoai_secret() {
 generate_machineset() {
   info "generating a GPU MachineSet (instanceType=${INSTANCE}) from an existing worker…"
   local worker
-  worker="$(oc get machineset -n "$MACHINE_NS" -o name 2>/dev/null | head -1 | sed 's#.*/##')"
+  worker="$(oc get machineset -n "$MACHINE_NS" -o name 2>/dev/null | grep -v -- '-gpu' | head -1 | sed 's#.*/##')"
   [ -n "$worker" ] || die "no worker MachineSet found in ${MACHINE_NS} (is this an IPI cluster?)."
   local out="$REPO_DIR/infra/10-gpu-machineset/machineset.yaml"
   oc get machineset "$worker" -n "$MACHINE_NS" -o yaml --show-managed-fields=false \

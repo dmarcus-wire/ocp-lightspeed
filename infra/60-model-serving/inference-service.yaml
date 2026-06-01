@@ -24,11 +24,16 @@ spec:
         - "--served-model-name=gpt-oss-20b"
         - "--max-model-len=8192"
       resources:
+        # Requests must leave headroom for node-reserved capacity + the GPU/NFD/
+        # monitoring daemonsets, or the predictor stays Pending ("Insufficient
+        # cpu/memory"). Sized for g6.2xlarge (8 vCPU / 32 GiB); the model itself
+        # runs in the L4's 24GB VRAM, so host cpu/memory only cover vLLM overhead
+        # and weight loading.
         requests:
-          cpu: "4"
-          memory: 16Gi
+          cpu: "2"
+          memory: 8Gi
           nvidia.com/gpu: "1"
         limits:
-          cpu: "8"
+          cpu: "6"
           memory: 24Gi
           nvidia.com/gpu: "1"
