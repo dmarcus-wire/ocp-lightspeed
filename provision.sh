@@ -227,9 +227,20 @@ apply_infra() {
 
 resolve_vllm_image() {
   # Best-effort: use the supported vLLM image from RHOAI's bundled template if present.
-  local img
-  img="$(oc get template -n redhat-ods-applications -o jsonpath='{range .items[*]}{.objects[0].spec.containers[0].image}{"\n"}{end}' 2>/dev/null | grep -m1 -i vllm || true)"
-  if [ -n "$img" ]; then VLLM_IMAGE="$img"; ok "using cluster vLLM image: $img"; else VLLM_IMAGE=""; warn "could not resolve cluster vLLM image; using the tag in serving-runtime.yaml"; fi
+  # CRITICAL: this is a GPU deployment, so we must pick the CUDA/GPU runtime and
+  # NEVER the CPU one (odh-vllm-cpu-*). A naive "first image matching vllm" grep can
+  # select the CPU image, which then ignores the requested nvidia.com/gpu and makes
+  # a 20B model unusably slow. Prefer cuda/gpu, exclude cpu, else fall back to the
+  # CUDA tag baked into serving-runtime.yaml.
+  local imgs img
+  imgs="$(oc get template -n redhat-ods-applications -o jsonpath='{range .items[*]}{.objects[0].spec.containers[0].image}{"\n"}{end}' 2>/dev/null | grep -i vllm || true)"
+  img="$(printf '%s\n' "$imgs" | grep -iE 'cuda|gpu' | grep -vi cpu | head -1)"
+  [ -n "$img" ] || img="$(printf '%s\n' "$imgs" | grep -vi cpu | head -1)"
+  if [ -n "$img" ]; then
+    VLLM_IMAGE="$img"; ok "using cluster vLLM image: $img"
+  else
+    VLLM_IMAGE=""; warn "no GPU vLLM image found in cluster templates; using the CUDA tag in serving-runtime.yaml"
+  fi
 }
 
 apply_model_serving() {
