@@ -172,6 +172,16 @@ gpu_node_ready() {
     | grep -qE '^[1-9]'
 }
 
+# DataScienceCluster reporting Ready does NOT guarantee the KServe validating
+# webhook is serving yet — the backend pod behind kserve-webhook-server-service
+# registers endpoints ~30-90s later. Creating a ServingRuntime/InferenceService
+# before then fails with "no endpoints available for service". Gate on real
+# endpoints (non-empty .subsets[*].addresses) before deploying the model.
+kserve_webhook_ready() {
+  oc get endpoints kserve-webhook-server-service -n redhat-ods-applications \
+    -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | grep -q '[0-9]'
+}
+
 # --------------------------------------------------------------------------- #
 # Self-hosted infra (layers 10..60), ordered with waits
 # --------------------------------------------------------------------------- #
@@ -206,6 +216,7 @@ apply_infra() {
   wait_for 900 "DataScienceCluster Ready" \
     bash -c "oc get datasciencecluster default-dsc -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Ready"
   wait_for 600 "InferenceService CRD" oc get crd inferenceservices.serving.kserve.io
+  wait_for 600 "KServe webhook endpoints" kserve_webhook_ready
 
   resolve_vllm_image
   info "deploying the model (${MODEL}) with vLLM…"
