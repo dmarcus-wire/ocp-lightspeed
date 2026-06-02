@@ -248,6 +248,12 @@ the reference for what broke and why.
   `maxTokensForResponse`.
 - **Model choice dominates agent reliability** — gpt-oss-20b bails (empty answers); granite drives
   the loop. Validated/tool-tuned beats bigger.
+- **SaaS rate-limits agent mode** — a `429 Too Many Requests` (distinct from the billing
+  `insufficient_quota`) is a per-minute **rate limit**. New OpenAI accounts start in a low usage tier
+  (requests/tokens-per-minute), and agent mode fires *many sequential* chat/completions calls — one
+  per tool round — which trips the cap. The client retries with backoff, so it eventually completes
+  but is slow and janky. The tier rises with usage/payment history (or request an increase). **Self-
+  hosted has no per-minute cap** (it's your GPU) — a concrete pillar-2/4 point.
 
 ### Ops
 
