@@ -234,6 +234,12 @@ apply_infra() {
   wait_for 300 "DataScienceCluster CRD" oc get crd datascienceclusters.datasciencecluster.opendatahub.io
 
   info "configuring single-model serving (KServe RawDeployment)…"
+  # Newer RHOAI auto-creates default-dsci; its monitoring.namespace is immutable, so
+  # re-applying ours (with a different value) is rejected. Only create ours if none
+  # exists; the kustomization applies just the DataScienceCluster.
+  if ! oc get dscinitialization default-dsci >/dev/null 2>&1; then
+    oc apply -f "$REPO_DIR/infra/50-datasciencecluster/dscinitialization.yaml"
+  fi
   oc apply -k "$REPO_DIR/infra/50-datasciencecluster"
   wait_for 900 "DataScienceCluster Ready" \
     bash -c "oc get datasciencecluster default-dsc -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Ready"
