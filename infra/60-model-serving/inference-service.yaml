@@ -35,6 +35,10 @@ spec:
         - "--max-model-len=24576"
         # Use more of the L4 for KV cache; the daemonset/runtime overhead is small.
         - "--gpu-memory-utilization=0.95"
+        # Cap concurrency: vLLM warms up the sampler with max_num_seqs dummy requests
+        # (default 256), which OOMs on a single L4 at high gpu-memory-utilization. A
+        # demo is single-user, so 16 is plenty and keeps full context/KV.
+        - "--max-num-seqs=16"
         # provision.sh replaces the next line with --enable-auto-tool-choice + a
         # model-specific --tool-call-parser (granite|hermes|llama3_json) for agent
         # mode, or drops it for runtimes that enable tools implicitly (e.g. gpt-oss).
