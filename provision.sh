@@ -417,7 +417,7 @@ do_switch() {
   choose_pattern
   case "$PATTERN" in
     saas)       ensure_openai_secret; choose_features; apply_overlay "saas-openai";;
-    selfhosted) ensure_rhoai_secret; choose_features; apply_overlay "self-hosted-rhoai"; set_selfhosted_url;;
+    selfhosted) ensure_rhoai_secret; choose_features; apply_infra; apply_overlay "self-hosted-rhoai"; set_selfhosted_url;;
   esac
   summary
 }
