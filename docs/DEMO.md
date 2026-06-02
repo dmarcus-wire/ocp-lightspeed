@@ -45,38 +45,36 @@ Troubleshooting mode, the live cluster data the tools read — leave the cluster
 ./provision.sh --switch --pattern saas --openai-key sk-... --features agent-troubleshooting --yes
 ```
 
-Monitor the rollout
+**Health check** — wait for `Ready` before prompting (SaaS converges in ~1–3 min):
 
 ```bash
-oc get pods -n lightspeed-llm -w
+oc get olsconfig cluster -o jsonpath='{.status.overallStatus}' -w   # Ctrl-C when it shows: Ready
 ```
 
-Verify the model you are running
+Then confirm which model is active:
 
 ```bash
 oc get olsconfig cluster -o jsonpath='{.spec.ols.defaultModel}{"\n"}'
 ```
 
-Then in the console (Lightspeed icon), run the three tests:
+**Monitor (optional, 2nd terminal)** — SaaS has no model pod (OpenAI is off-cluster); everything runs
+in the app-server, and OpenAI calls appear inline as `httpx` requests. The MCP-server pane shows the
+live cluster reads during the Troubleshooting/write tests:
 
-(Optional - monitor logs while prompting)
+```bash
+oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-service-api -f --tail=20
+oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c openshift-mcp-server   -f --tail=20
+```
 
-For SaaS there's no model pod to watch (OpenAI is off-cluster) — everything happens in the app-server, and the OpenAI calls show up inline as httpx requests.
-
-`oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-service-api -f --tail=20`
-
-For the Troubleshooting tests, also tail the MCP server in a second pane — it shows the live cluster reads the agent makes:
-
-`oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c openshift-mcp-server -f --tail=20`
-
-For the write test, first spin up a throwaway deployment to scale — the agent refuses to scale
-operator-managed deployments like `lightspeed-console-plugin` (it sees the operator owns them and
-declines), so give it a plain target:
+**Set up the write test** — a throwaway deployment to scale (the agent refuses operator-managed ones
+like `lightspeed-console-plugin`, which it sees are reconciled and declines):
 
 ```bash
 oc create deployment demo-scale -n openshift-lightspeed \
   --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity
 ```
+
+Then in the console (Lightspeed icon), run the three tests:
 
 1. **Ask** — *"What is an OpenShift Route vs an Ingress?"* → doc-grounded answer.
 2. **Troubleshoot** — *"List the pods in namespace openshift-lightspeed and their restart counts."* → it
@@ -107,11 +105,22 @@ where model choice becomes the story.
   --features agent-troubleshooting --vllm-token novalue --yes
 ```
 
-Keep the agent loop visible while you demo — this is what *proves* the model is calling cluster tools:
+**Health check** — the build is done when the predictor is serving (the long poles are the GPU node
+coming up, then the model load):
+
+```bash
+oc get pods -n lightspeed-llm -w                                    # want: predictor 2/2 Running
+oc get olsconfig cluster -o jsonpath='{.status.overallStatus}'      # want: Ready
+```
+
+**Monitor (optional, 2nd terminal)** — the agent loop is what *proves* the model is calling cluster
+tools (read it live as you prompt):
 
 ```bash
 oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-service-api -f --tail=5
 ```
+
+Run the tests below. **After the granite switch (step 3), re-run the Health check before testing again.**
 
 1. **Ask — on `gpt-oss-20b`.** *"Write the YAML for a HorizontalPodAutoscaler targeting 70% CPU on a
    deployment named web."* → a correct manifest, generated entirely on your L4. gpt-oss-20b is a
@@ -260,11 +269,25 @@ the reference for what broke and why.
 
 - **KServe webhook race** — applying the model before `kserve-webhook-server-service` had endpoints
   failed with "no endpoints available." Wait for the webhook.
-- **KV-cache OOM at 32k** — a full **bf16** 8B (granite, ~15 GiB) leaves only ~4.3 GiB KV; 32k needs
-  ~5. Default to `--max-model-len=24576` + `--gpu-memory-utilization=0.95`. (Quantized gpt-oss MXFP4
-  ~13.7 GiB had more room — quantization changes the math.)
+- **Fitting a ~14–15 GiB model on one 24 GB L4 is tight — three memory levers** (all encoded in `infra/60`):
+  - **Context** `--max-model-len=24576`: 32k OOMs the KV cache for a full **bf16** 8B (granite ~15 GiB
+    weights → only ~4.3 GiB free; 32k needs ~5). 24k fits and still holds the agent tool catalog.
+  - **GPU memory** `--gpu-memory-utilization=0.90`: 0.95 filled the L4 so completely there was no
+    headroom for **CUDA-graph capture** → OOM allocating 16 MiB at startup. 0.90 leaves ~1 GiB.
+  - **Concurrency** `--max-num-seqs=16`: the default 256 makes vLLM warm up the sampler with 256 dummy
+    requests → OOM. A demo is single-user, so 16 is ample and keeps full context.
+  - (Quantized gpt-oss MXFP4 ~13.7 GiB has more room than bf16 granite — quantization changes the math.)
 - **Single-GPU rollout deadlock** — a rolling update can't place the new pod (the old one holds the
   only GPU). Use `deploymentStrategy: Recreate`.
+
+### Provisioning flow
+
+- **`--switch` to self-hosted didn't build the GPU stack.** `do_switch` only repointed the OLSConfig,
+  so on a cluster that never ran a full self-hosted provision it aimed OLS at a model that doesn't
+  exist → "Connection error" / no `inferenceservice` CRD. `do_switch` now runs `apply_infra` too.
+- **DSCInitialization is immutable.** Newer RHOAI auto-creates `default-dsci` with an immutable
+  `spec.monitoring.namespace`; re-applying our own with a different value fails ("MonitoringNamespace
+  is immutable") and halts provisioning. `apply_infra` now creates the DSCI only if one is absent.
 
 ### OLS ↔ model wiring
 
@@ -427,7 +450,7 @@ manually:
 ```bash
 # 1) runtime context (must fit the KV cache — see the OOM note below)
 oc patch inferenceservice <model> -n lightspeed-llm --type=merge -p \
-  '{"spec":{"predictor":{"model":{"args":["--served-model-name=<model>","--max-model-len=24576","--gpu-memory-utilization=0.95"]}}}}'
+  '{"spec":{"predictor":{"model":{"args":["--served-model-name=<model>","--max-model-len=24576","--gpu-memory-utilization=0.90","--max-num-seqs=16"]}}}}'
 # 2) OLS: match the window
 oc patch olsconfig cluster --type=merge -p \
   '{"spec":{"llm":{"providers":[{"name":"rhoai","type":"rhoai_vllm","credentialsSecretRef":{"name":"rhoai-vllm-token"},"url":"http://<model>-predictor.lightspeed-llm.svc.cluster.local:8080/v1","models":[{"name":"<model>","contextWindowSize":24576,"parameters":{"maxTokensForResponse":1024}}]}]}}}'
@@ -443,8 +466,9 @@ for the GPU. KServe shows `RESTARTS` climbing and the *previous* container log
 needed, which is larger than the available KV cache memory (Y GiB)`. **Full bf16 models are bigger
 than quantized ones** — granite-3.3-8b (bf16, ~15 GiB) leaves only ~4.3 GiB for KV on a 24 GB L4, so
 32k (needs ~5 GiB) won't fit, while gpt-oss-20b (MXFP4, ~13.7 GiB) does. vLLM prints an "estimated
-maximum model length" in the error — set `--max-model-len` below it (24576 is the safe default here)
-and add `--gpu-memory-utilization=0.95`, then drop `contextWindowSize` to match.
+maximum model length" in the error — set `--max-model-len` below it (24576 is the safe default here),
+keep `--gpu-memory-utilization=0.90` + `--max-num-seqs=16` (0.95 / 256 OOM on a single L4 — see the
+memory-levers note in Lessons learned), then drop `contextWindowSize` to match.
 
 **New predictor pod stuck `Pending` after a model/config change — "Insufficient nvidia.com/gpu".**
 A single-GPU rolling update deadlocks: the surge brings the new pod up before the old releases the
