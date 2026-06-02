@@ -162,26 +162,43 @@ Run the tests below. **After the granite switch (step 3), re-run the Health chec
    command above (idempotent: it waits for granite, then re-creates the OLSConfig). Then hard-refresh
    the console.
 
-4. **Troubleshoot — on granite.** Restart-count prompt in Troubleshooting mode → granite issues real
-   `pods_list` calls (watch the loop) and answers with your live pods.
+4. **Troubleshoot — on granite (the function tests).** These exercise the read-only MCP tools against
+   live cluster state. Run easiest → hardest; each names a specific object so there's a verifiable
+   answer:
+   > *"Is the lightspeed-app-server pod in openshift-lightspeed Ready? If a container isn't, name it."*
+   > *"List the pods in namespace lightspeed-llm with their restart counts."*
+   > *"What's the status of the granite-3-3-8b-instruct InferenceService in lightspeed-llm, and what model is it serving?"*
+   > *"Show recent events for the granite-3-3-8b-instruct-predictor pod in lightspeed-llm and summarize any warnings."*
+   > *"Find pods cluster-wide that have restarted more than 3 times and summarize the likely cause from their events."*
 
-5. **Write / approval test — on granite.** Reuse the throwaway target from §1 (recreate if it's gone:
-   `oc create deployment demo-scale -n openshift-lightspeed --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity`),
+   **Did it actually execute? (the pass/fail).** Tail the loop and read the answer:
+   - **Pass** — `outcome=after_tool_execution` with **`tool_results` > 0**, and the answer names **real
+     objects** (actual pod names, conditions, counts) — proof the MCP read path ran.
+   - **Fail (advice)** — `tool_results=0` and a generic *"use `oc get pods …`"* answer: the model
+     didn't call the tool.
+   - ⚠️ **OLS-version-sensitive.** These executed cleanly on operator **v1.0.x**; on **v1.1.0** granite
+     tends to return the advice form (the regression in Lessons learned). If you get advice with tools
+     attached (`tool_defs` > 0, `tool_results=0`), it's the OLS version — not your prompt or config.
+
+5. **Write / approval test — on granite (best-effort).** Recreate the target if gone
+   (`oc create deployment demo-scale -n openshift-lightspeed --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity`),
    then: *"Using your cluster tools, scale the deployment demo-scale in openshift-lightspeed to 2
-   replicas."* Self-hosted has **no rate limits**, so the agent can run the full multi-step loop
-   without throttling — the ceiling SaaS hit in §1. Watch the loop for a **write** tool call; if the
-   model commits it, `tool_annotations` gates it with an **Approve/Deny** card (whether the card
-   renders depends on the model actually issuing the write — verify with your model). Don't target an
-   operator-managed deployment like `lightspeed-console-plugin` — the agent correctly refuses those.
+   replicas."* **If** the model commits a write tool call, `tool_annotations` gates it with an
+   **Approve/Deny** card. This is the **least reliable** beat: small models often **advise instead of
+   acting** on mutating operations, and v1.1.0 doesn't execute tools at all — so the card may not
+   appear. Treat it as "show the safety gate *exists*," not a guaranteed demo. (Don't target an
+   operator-managed deployment like `lightspeed-console-plugin` — the agent correctly refuses those.)
 
-**Model recommendation (the lesson):** for **Troubleshooting/agent mode use `granite-3.3-8b-instruct`**
-— Red Hat's validated, tool-tuned model that drives function-calling reliably. Keep **`gpt-oss-20b`
-for the Ask / "self-hosted reasoning model" story**. It's not about size — bigger reasoning models
-hit the same harness mismatch and don't fit one L4. See the README ["Which model?"](../README.md#model-matrix-self-hosted).
+**Model & version recommendation (the lesson).** **Ask mode is the guaranteed beat** — both models
+answer well (gpt-oss-20b is a strong single-shot reasoner). For **Troubleshooting/agent mode**,
+`granite-3.3-8b-instruct` is Red Hat's validated, tool-tuned choice — but **agent tool-execution is
+sensitive to the OLS operator version**: it ran cleanly on v1.0.x and regressed on v1.1.0 (see Lessons
+learned). If the agent demo matters, verify/pin the operator version. See the README
+["Which model?"](../README.md#model-matrix-self-hosted).
 
-**Point made:** same Ask/Troubleshoot experience as SaaS, but with **no token billing, no per-minute
-rate limits, and nothing leaving the cluster** — it all ran on your single GPU, on a Red Hat–validated
-model you control.
+**Point made:** **Ask** is identical to SaaS and rock-solid; cluster-aware **Troubleshooting** works
+when the OLS version cooperates — and either way, **no token billing, no rate limits, and nothing
+leaves the cluster**. It all ran on your single GPU, on a Red Hat–validated model you control.
 
 ---
 
