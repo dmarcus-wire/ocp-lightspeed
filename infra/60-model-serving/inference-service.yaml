@@ -33,8 +33,10 @@ spec:
         # bf16 8B (e.g. granite, ~15 GiB weights → only ~4.3 GiB KV free, needs 5).
         # A quantized model (gpt-oss MXFP4 ~13.7 GiB) has room for more if you raise it.
         - "--max-model-len=24576"
-        # Use more of the L4 for KV cache; the daemonset/runtime overhead is small.
-        - "--gpu-memory-utilization=0.95"
+        # 0.90 (not 0.95): 0.95 fills the L4 so completely there's no headroom for
+        # CUDA-graph capture / activations → OOM at startup. 0.90 leaves ~1 GB and
+        # still fits both gpt-oss (MXFP4) and granite (bf16) at 24k context.
+        - "--gpu-memory-utilization=0.90"
         # Cap concurrency: vLLM warms up the sampler with max_num_seqs dummy requests
         # (default 256), which OOMs on a single L4 at high gpu-memory-utilization. A
         # demo is single-user, so 16 is plenty and keeps full context/KV.
