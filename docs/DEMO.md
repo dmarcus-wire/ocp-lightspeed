@@ -45,7 +45,14 @@ Troubleshooting mode, the live cluster data the tools read — leave the cluster
 ./provision.sh --switch --pattern saas --openai-key sk-... --features agent-troubleshooting --yes
 ```
 
+Monitor the rollout
+
+```bash
+oc get pods -n lightspeed-llm -w
+```
+
 Verify the model you are running
+
 ```bash
 oc get olsconfig cluster -o jsonpath='{.spec.ols.defaultModel}{"\n"}'
 ```
