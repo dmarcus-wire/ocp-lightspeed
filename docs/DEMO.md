@@ -341,6 +341,16 @@ the reference for what broke and why.
   per tool round — which trips the cap. The client retries with backoff, so it eventually completes
   but is slow and janky. The tier rises with usage/payment history (or request an increase). **Self-
   hosted has no per-minute cap** (it's your GPU) — a concrete pillar-2/4 point.
+- **The OLS operator version gates agent tool execution — Ask mode is bulletproof; agent
+  tool-execution depends on the OLS version lining up.** On OLS **v1.0.x** granite executed the MCP
+  tools (real `pods_list` results from the cluster). After the operator **auto-upgraded to v1.1.0**,
+  the *same* model + runtime (hermes parser, `--enable-auto-tool-choice`, tools attached:
+  `tool_defs=5816`, 24 tools loaded) **stopped calling tools** — it answers from the docs/RAG instead
+  (`tool_results=0`, `outcome=llm_stream_stop` on round 1). It's not the config or the runtime — every
+  other variable was identical; only the operator version changed. **Pin the operator**
+  (`installPlanApproval: Manual` + a known-good `startingCSV` in the Subscription) so an auto-upgrade
+  can't silently change agent behavior mid-demo. (v1.1.0 also added `spec.ols.toolFilteringConfig` and
+  `spec.ols.mcpServer` — investigate before relying on agent mode on a new OLS version.)
 
 ### Ops
 
