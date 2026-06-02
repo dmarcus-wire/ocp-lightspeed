@@ -201,8 +201,8 @@ price, annualize, and compare to the GPU's yearly cost: the business case in one
 
 ## 3. Lessons learned (what it took to make this real)
 
-Each of these was a live failure we diagnosed; the fixes are in the repo and the
-[README Troubleshooting](../README.md#troubleshooting-self-hosted) section.
+Each of these was a live failure we diagnosed; the fixes are committed in the repo, and this list is
+the reference for what broke and why.
 
 ### GPU & infra
 
@@ -239,8 +239,11 @@ Each of these was a live failure we diagnosed; the fixes are in the repo and the
 - **"Prompt is too long"** — agent mode injects the ~6k-token MCP tool catalog; the context window
   must hold tools + prompt + answer (≈10k), so 8k overflowed. 24k clears it.
 - **Tool-calling must be enabled per model** — vLLM 400s on `tool_choice=auto` without
-  `--enable-auto-tool-choice` + a model-specific `--tool-call-parser` (granite→`granite`); gpt-oss's
-  runtime enables it implicitly, which is why it *accepted* tools but still fumbled them.
+  `--enable-auto-tool-choice` + the *right* `--tool-call-parser`. The parser must match the model's
+  emitted format: the **granite-3.3 modelcar emits Hermes-style `<tool_call>` tags, so it needs
+  `hermes`, not `granite`** — with the wrong parser the call leaks into the chat as raw JSON and never
+  executes. (gpt-oss's runtime enables tools implicitly, which is why it *accepted* tools but still
+  fumbled them.)
 - **Console hangs on `...`** — a verbose model can run past the console's patience; cap answers with
   `maxTokensForResponse`.
 - **Model choice dominates agent reliability** — gpt-oss-20b bails (empty answers); granite drives

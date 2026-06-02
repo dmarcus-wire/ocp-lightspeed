@@ -18,7 +18,7 @@ toggleable extras: a Route, query redaction, token quotas, and cluster interacti
 - **[docs/DEMO.md](docs/DEMO.md)** — the guided walkthrough: provision → SaaS → self-hosted (the
   gpt-oss→granite pivot) → business value → lessons. **Start here to run or present the demo.**
 - **This README** — reference: prerequisites, the quick start, which model to pick, using your own
-  OpenAI key, switching, and troubleshooting.
+  OpenAI key, and switching. (Failure modes & fixes live in DEMO.md's *Lessons learned*.)
 - **[docs/HEALTH_CHECK.md](docs/HEALTH_CHECK.md)** — verify/recover the stack after a sandbox restart.
 
 ---
@@ -171,8 +171,11 @@ The SaaS pattern talks to OpenAI's hosted API. You supply an **API key**; the re
    pipes it straight into the cluster (`oc create secret … --dry-run | oc apply`) and never writes it to
    disk or any tracked file, so it can't end up in git.
 
-3. **Verify:** `oc get olsconfig cluster -o jsonpath='{.status.overallStatus} {.spec.ols.defaultModel}{"\n"}'`
-   → `Ready gpt-4o`.
+3. **Verify:** 
+
+`oc get olsconfig cluster -o jsonpath='{.status.overallStatus} {.spec.ols.defaultModel}{"\n"}'`
+
+Expected output `Ready gpt-4o`.
 
 > **Key hygiene:** treat the `sk-…` value like a password — never paste it into chats, commits, issues, or
 > screenshots. If it's ever exposed, **revoke it** at platform.openai.com and create a new one. The repo

@@ -90,7 +90,7 @@ MODEL_NAME="${MODEL//./-}"
 # runtimes (e.g. gpt-oss) enable tool handling implicitly, so we set no parser there.
 # Override with TOOL_PARSER=... (empty = inject nothing).
 case "$MODEL" in
-  granite*) TOOL_PARSER="${TOOL_PARSER-granite}";;
+  granite*) TOOL_PARSER="${TOOL_PARSER-hermes}";;   # granite-3.3 modelcar emits Hermes-style <tool_call> tags (verified)
   qwen*)    TOOL_PARSER="${TOOL_PARSER-hermes}";;
   llama*)   TOOL_PARSER="${TOOL_PARSER-llama3_json}";;
   *)        TOOL_PARSER="${TOOL_PARSER-}";;
