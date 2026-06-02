@@ -127,10 +127,15 @@ Run the tests below. **After the granite switch (step 3), re-run the Health chec
    strong single-shot reasoning model and Ask mode shines.
 
 2. **(Optional) Show why model choice matters — the fumble.** Skip for the happy path; include it for
-   a great "here's the trap" test. In Troubleshooting mode, ask the restart-count prompt *on
-   gpt-oss-20b* and watch the loop: `model_finished_without_tools` with an **empty answer** — it reads
-   one tool then bails. Its reasoning/harmony format doesn't drive OLS's tool loop on this vLLM build.
-   That's the live motivation for switching models.
+   a great "here's the trap" test. It's the **same write prompt you'll use on granite in step 5**, so
+   it sets up a clean before/after. Make sure `demo-scale` exists first (created in §1; recreate with
+   the command in step 5 if you skipped §1), then in Troubleshooting mode ask:
+   > *"Using your cluster tools, scale the deployment demo-scale in openshift-lightspeed to 2 replicas."*
+
+   Watch the loop: gpt-oss reads a tool, then `model_finished_without_tools` with an **empty answer** —
+   it never commits the write, so the scale doesn't land (`oc get deploy demo-scale … desired=1`) and
+   no approval card appears. Its reasoning/harmony format doesn't drive OLS's tool loop on this vLLM
+   build. That's the live motivation for switching — the *same* prompt succeeds on granite in step 5.
 
 3. **Switch to the validated, tool-tuned model.** Single L4 = one model at a time, so free the GPU
    first:
