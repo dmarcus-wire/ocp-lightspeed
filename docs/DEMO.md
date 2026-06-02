@@ -29,7 +29,7 @@ git clone https://github.com/dmarcus-wire/ocp-lightspeed.git && cd ocp-lightspee
 Always verify health before demoing — especially after a sandbox restart:
 
 ```bash
-oc get olsconfig cluster -o jsonpath='{.status.overallStatus}{"\n"}'   # want: Ready
+oc get olsconfig cluster -o jsonpath='{.status.overallStatus}{"\n"}' -w  # want: Ready
 ```
 
 ---
@@ -45,13 +45,33 @@ Troubleshooting mode, the live cluster data the tools read — leave the cluster
 ./provision.sh --switch --pattern saas --openai-key sk-... --features agent-troubleshooting --yes
 ```
 
-Then in the console (Lightspeed icon), run the three beats:
+Then in the console (Lightspeed icon), run the three tests:
+
+(Optional - monitor logs while prompting)
+
+For SaaS there's no model pod to watch (OpenAI is off-cluster) — everything happens in the app-server, and the OpenAI calls show up inline as httpx requests.
+
+`oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-service-api -f --tail=20`
+
+For the Troubleshooting tests, also tail the MCP server in a second pane — it shows the live cluster reads the agent makes:
+
+`oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c openshift-mcp-server -f --tail=20`
+
+For the approval beat, first spin up a throwaway deployment to scale — the agent refuses to scale
+operator-managed deployments like `lightspeed-console-plugin` (it sees the operator owns them and
+declines), so give it a plain target:
+
+```bash
+oc create deployment demo-scale -n openshift-lightspeed \
+  --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity
+```
 
 1. **Ask** — *"What is an OpenShift Route vs an Ingress?"* → doc-grounded answer.
-2. **Troubleshoot** — *"List the pods in namespace lightspeed-llm and their restart counts."* → it
+2. **Troubleshoot** — *"List the pods in namespace openshift-lightspeed and their restart counts."* → it
    calls the Kubernetes MCP tools and names your real pods.
-3. **Approval gate** — *"Scale the deployment lightspeed-console-plugin in openshift-lightspeed to 2
-   replicas."* → an **Approve/Deny** card appears before the write.
+3. **Approval gate** — *"Using your cluster tools, scale the deployment demo-scale in
+   openshift-lightspeed to 2 replicas."* → the write tool fires and an **Approve/Deny** card appears
+   before it acts. Clean up after: `oc delete deployment demo-scale -n openshift-lightspeed`.
 
 `gpt-4o` handles all three cleanly. **Point made:** powerful, instant — but that was your cluster's
 data going to a hosted API.
