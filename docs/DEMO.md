@@ -57,7 +57,7 @@ For the Troubleshooting tests, also tail the MCP server in a second pane — it 
 
 `oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c openshift-mcp-server -f --tail=20`
 
-For the approval beat, first spin up a throwaway deployment to scale — the agent refuses to scale
+For the write test, first spin up a throwaway deployment to scale — the agent refuses to scale
 operator-managed deployments like `lightspeed-console-plugin` (it sees the operator owns them and
 declines), so give it a plain target:
 
@@ -69,18 +69,23 @@ oc create deployment demo-scale -n openshift-lightspeed \
 1. **Ask** — *"What is an OpenShift Route vs an Ingress?"* → doc-grounded answer.
 2. **Troubleshoot** — *"List the pods in namespace openshift-lightspeed and their restart counts."* → it
    calls the Kubernetes MCP tools and names your real pods.
-3. **Approval gate** — *"Using your cluster tools, scale the deployment demo-scale in
-   openshift-lightspeed to 2 replicas."* → the write tool fires and an **Approve/Deny** card appears
-   before it acts. Clean up after: `oc delete deployment demo-scale -n openshift-lightspeed`.
+3. **Write (where low-tier SaaS hits its ceiling)** — *"Using your cluster tools, scale the deployment
+   demo-scale in openshift-lightspeed to 2 replicas."* On a **low usage tier**, this is exactly where
+   hosted SaaS shows its limits: `gpt-4o` trips the **30k-TPM rate limit** (the tool-catalog-heavy
+   agent loop), and `gpt-4o-mini` **loops on read tools and narrates the action without ever
+   committing the write** — so the scale often doesn't land (`oc get deploy demo-scale … desired=1`)
+   and no approval card appears. That ceiling **is the segue to self-hosted** (no per-minute caps,
+   your own model) — the write + approval is the §2 payoff. Clean up: `oc delete deployment demo-scale -n openshift-lightspeed`.
 
-`gpt-4o` handles all three cleanly. **Point made:** powerful, instant — but that was your cluster's
-data going to a hosted API.
+**Point made:** Ask and Troubleshoot are fast and impressive — but the write test shows a low-tier
+hosted account throttling (gpt-4o) or hesitating (mini), and *every* token and cluster read went to a
+hosted API. That's the cue to switch to self-hosted.
 
 ---
 
 ## 2. Self-hosted — Lightspeed → a Red Hat–validated model on vLLM
 
-Same three beats, but the model runs on *your* GPU and **nothing leaves the cluster**. This is also
+Same three tests, but the model runs on *your* GPU and **nothing leaves the cluster**. This is also
 where model choice becomes the story.
 
 **Connect** (builds the GPU + serving stack; ~30–45 min first time):
@@ -101,7 +106,7 @@ oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-servi
    strong single-shot reasoning model and Ask mode shines.
 
 2. **(Optional) Show why model choice matters — the fumble.** Skip for the happy path; include it for
-   a great "here's the trap" beat. In Troubleshooting mode, ask the restart-count prompt *on
+   a great "here's the trap" test. In Troubleshooting mode, ask the restart-count prompt *on
    gpt-oss-20b* and watch the loop: `model_finished_without_tools` with an **empty answer** — it reads
    one tool then bails. Its reasoning/harmony format doesn't drive OLS's tool loop on this vLLM build.
    That's the live motivation for switching models.
@@ -118,17 +123,23 @@ oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-servi
 4. **Troubleshoot — on granite.** Restart-count prompt in Troubleshooting mode → granite issues real
    `pods_list` calls (watch the loop) and answers with your live pods.
 
-5. **Approval gate — on granite.** Scale prompt → the **Approve/Deny** card appears, write gated
-   behind a human. Approve, then `oc get deploy lightspeed-console-plugin -n openshift-lightspeed`
-   → 2 replicas.
+5. **Write / approval test — on granite.** Reuse the throwaway target from §1 (recreate if it's gone:
+   `oc create deployment demo-scale -n openshift-lightspeed --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity`),
+   then: *"Using your cluster tools, scale the deployment demo-scale in openshift-lightspeed to 2
+   replicas."* Self-hosted has **no rate limits**, so the agent can run the full multi-step loop
+   without throttling — the ceiling SaaS hit in §1. Watch the loop for a **write** tool call; if the
+   model commits it, `tool_annotations` gates it with an **Approve/Deny** card (whether the card
+   renders depends on the model actually issuing the write — verify with your model). Don't target an
+   operator-managed deployment like `lightspeed-console-plugin` — the agent correctly refuses those.
 
 **Model recommendation (the lesson):** for **Troubleshooting/agent mode use `granite-3.3-8b-instruct`**
 — Red Hat's validated, tool-tuned model that drives function-calling reliably. Keep **`gpt-oss-20b`
 for the Ask / "self-hosted reasoning model" story**. It's not about size — bigger reasoning models
 hit the same harness mismatch and don't fit one L4. See the README ["Which model?"](../README.md#model-matrix-self-hosted).
 
-**Point made:** identical Ask/Troubleshoot/approval experience as SaaS — but every token and every
-byte of cluster data stayed on-cluster, on a single GPU.
+**Point made:** same Ask/Troubleshoot experience as SaaS, but with **no token billing, no per-minute
+rate limits, and nothing leaving the cluster** — it all ran on your single GPU, on a Red Hat–validated
+model you control.
 
 ---
 
