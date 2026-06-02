@@ -45,6 +45,11 @@ Troubleshooting mode, the live cluster data the tools read — leave the cluster
 ./provision.sh --switch --pattern saas --openai-key sk-... --features agent-troubleshooting --yes
 ```
 
+Verify the model you are running
+```bash
+oc get olsconfig cluster -o jsonpath='{.spec.ols.defaultModel}{"\n"}'
+```
+
 Then in the console (Lightspeed icon), run the three tests:
 
 (Optional - monitor logs while prompting)
