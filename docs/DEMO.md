@@ -146,6 +146,22 @@ Run the tests below. **After the granite switch (step 3), re-run the Health chec
      --instance g6.2xlarge --features agent-troubleshooting --vllm-token novalue --yes
    ```
 
+   **Confirm the switch completed before testing.** `--switch` deletes the OLSConfig first and only
+   re-creates it once the new model is `Ready` — so if the script is interrupted (e.g. the cluster
+   restarts mid-switch), you're left with **no OLSConfig**, the app-server torn down, and the console
+   showing the "Get started" promo instead of chat. Verify all three came back:
+
+   ```bash
+   oc get olsconfig cluster -o jsonpath='overall={.status.overallStatus} model={.spec.ols.defaultModel}{"\n"}'
+   #   want: overall=Ready model=granite-3-3-8b-instruct   (NOT "cluster not found")
+   oc get pods -n openshift-lightspeed     # lightspeed-app-server back, 3/3 Running
+   oc get pods -n lightspeed-llm           # granite-3-3-8b-instruct-predictor 2/2 Running
+   ```
+
+   If the OLSConfig is missing or still says gpt-oss-20b, the switch didn't finish — just re-run the
+   command above (idempotent: it waits for granite, then re-creates the OLSConfig). Then hard-refresh
+   the console.
+
 4. **Troubleshoot — on granite.** Restart-count prompt in Troubleshooting mode → granite issues real
    `pods_list` calls (watch the loop) and answers with your live pods.
 
