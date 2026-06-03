@@ -99,12 +99,25 @@ hosted API. That's the cue to switch to self-hosted.
 Same three tests, but the model runs on *your* GPU and **nothing leaves the cluster**. This is also
 where model choice becomes the story.
 
-**Connect** (builds the GPU + serving stack; ~30–45 min first time):
+**Connect.** The walkthrough below tells the *model-choice story*, so it starts on `gpt-oss-20b`
+(strong Ask, fumbles agent mode) and switches to `qwen3-8b` for the cluster-aware tests. Builds the
+GPU + serving stack; ~30–45 min first time.
 
 ```bash
 ./provision.sh --switch --pattern selfhosted --model gpt-oss-20b --instance g6.2xlarge \
   --features agent-troubleshooting --vllm-token novalue --yes
 ```
+
+> **Just want the working agent demo (no story)?** On a fresh or SaaS-only cluster, deploy `qwen3-8b`
+> directly — it's the default model — then skip to **step 4**. One command, one model load:
+>
+> ```bash
+> ./provision.sh --switch --pattern selfhosted --instance g6.2xlarge \
+>   --features agent-troubleshooting --vllm-token novalue --yes
+> ```
+>
+> (If a self-hosted model is *already* serving, free the GPU first — see step 3's `oc delete
+> inferenceservice …`.)
 
 **Health check** — the build is done when the predictor is serving (the long poles are the GPU node
 coming up, then the model load):
@@ -123,11 +136,14 @@ oc get olsconfig cluster -o jsonpath='{.status.overallStatus}'      # want: Read
 > capturing CUDA graphs) → **`2/2 Running`** (both containers up = serving). An OOM, if the model
 > doesn't fit, shows during the `Running` weight-load phase — watch the load log below to catch it.
 
-**Monitor (optional, 2nd terminal)** — two useful tails:
+**Monitor (optional, 2nd terminal)** — two useful tails. The first line resolves whichever model is
+currently deployed, so these paste-and-run as-is (no `<model>` to substitute):
 
 ```bash
+M=$(oc get inferenceservice -n lightspeed-llm -o jsonpath='{.items[0].metadata.name}')
+
 # the model's weight-load (watch during the 0/2 → 2/2 phase; catches an OOM at load)
-oc logs -n lightspeed-llm deploy/<model>-predictor -c kserve-container -f \
+oc logs -n lightspeed-llm deploy/${M}-predictor -c kserve-container -f \
   | grep -iE 'loading|max model len|out of memory|application startup|error'
 # the agent loop — proves the model is actually calling cluster tools (read it live as you prompt)
 oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-service-api -f --tail=5
@@ -202,12 +218,16 @@ Run the tests below. **After the model switch (step 3), re-run the Health check 
    language (the agent reads the events and explains the `ImagePullBackOff`):
 
    ```bash
+   # break it (bad image → ImagePullBackOff):
    oc set image deployment/demo-scale ubi-minimal=registry.access.redhat.com/ubi9/does-not-exist:nope -n openshift-lightspeed
    ```
 
    > *"My demo-scale app in openshift-lightspeed stopped working — can you tell me why?"*
 
-   (Reset after: `oc set image deployment/demo-scale ubi-minimal=registry.access.redhat.com/ubi9/ubi-minimal -n openshift-lightspeed`.)
+   ```bash
+   # reset it after (back to a good image):
+   oc set image deployment/demo-scale ubi-minimal=registry.access.redhat.com/ubi9/ubi-minimal -n openshift-lightspeed
+   ```
 
    **Did it actually execute? (the pass/fail).** Tail the loop and read the answer:
    - **Pass** — `outcome=after_tool_execution` with **`tool_results` > 0**, and the answer names **real
@@ -220,10 +240,18 @@ Run the tests below. **After the model switch (step 3), re-run the Health check 
      `tool_results=0`), suspect the OLS version/runtime, not your prompt; on v1.0.x, granite executes
      and is the right model.
 
-5. **Write / approval test — on Qwen3 (best-effort).** Recreate the target if gone
-   (`oc create deployment demo-scale -n openshift-lightspeed --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity`),
-   then: *"Scale my demo-scale app in openshift-lightspeed to 2 replicas."* **If** the model commits a
-   write tool call, `tool_annotations` gates it with an
+5. **Write / approval test — on Qwen3 (best-effort).** Recreate the target if it's gone, then ask the
+   scale prompt:
+
+   ```bash
+   # recreate demo-scale if you deleted it earlier
+   oc create deployment demo-scale -n openshift-lightspeed \
+     --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity
+   ```
+
+   > *"Scale my demo-scale app in openshift-lightspeed to 2 replicas."*
+
+   **If** the model commits a write tool call, `tool_annotations` gates it with an
    **Approve/Deny** card. This is the **least reliable** beat: even a capable tool-caller often **advises
    instead of acting** on mutating operations (reads are far more reliable than writes) — so the card may
    not appear every time. Treat it as "show the safety gate *exists*," not a guaranteed demo. (Don't
