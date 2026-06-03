@@ -76,12 +76,25 @@ oc create deployment demo-scale -n openshift-lightspeed \
 
 Then in the console (Lightspeed icon), run the three tests:
 
-1. **Ask** (how-to) — *"How do I expose my application to users outside the cluster?"* → doc-grounded
-   answer (Route/Ingress), no cluster access needed.
-2. **Troubleshoot** (their cluster) — *"Is everything in the `openshift-lightspeed` namespace healthy
-   right now?"* → it calls the Kubernetes MCP tools and reports on your real workloads.
-3. **Write (where low-tier SaaS hits its ceiling)** — *"Scale my demo-scale app in openshift-lightspeed
-   to 2 replicas."* On a **low usage tier**, this is exactly where
+1. **Ask** (how-to) — doc-grounded answer (Route/Ingress), no cluster access needed:
+
+   ```text
+   How do I expose my application to users outside the cluster?
+   ```
+
+2. **Troubleshoot** (their cluster) — it calls the Kubernetes MCP tools and reports on your real workloads:
+
+   ```text
+   Is everything in the openshift-lightspeed namespace healthy right now?
+   ```
+
+3. **Write (where low-tier SaaS hits its ceiling):**
+
+   ```text
+   Scale my demo-scale app in openshift-lightspeed to 2 replicas.
+   ```
+
+   On a **low usage tier**, this is exactly where
    hosted SaaS shows its limits: `gpt-4o` trips the **30k-TPM rate limit** (the tool-catalog-heavy
    agent loop), and `gpt-4o-mini` **loops on read tools and narrates the action without ever
    committing the write** — so the scale often doesn't land (`oc get deploy demo-scale … desired=1`)
@@ -151,15 +164,23 @@ oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-servi
 
 Run the tests below. **After the model switch (step 3), re-run the Health check before testing again.**
 
-1. **Ask — on `gpt-oss-20b`.** *"Write the YAML for a HorizontalPodAutoscaler targeting 70% CPU on a
-   deployment named web."* → a correct manifest, generated entirely on your L4. gpt-oss-20b is a
-   strong single-shot reasoning model and Ask mode shines.
+1. **Ask — on `gpt-oss-20b`.** In Ask mode, paste:
+
+   ```text
+   Write the YAML for a HorizontalPodAutoscaler targeting 70% CPU on a deployment named web.
+   ```
+
+   → a correct manifest, generated entirely on your L4. gpt-oss-20b is a strong single-shot reasoning
+   model and Ask mode shines.
 
 2. **(Optional) Show why model choice matters — the fumble.** Skip for the happy path; include it for
    a great "here's the trap" test. It's the **same prompt you'll use on Qwen3 in step 4**, so it sets
    up a clean before/after. Make sure `demo-scale` exists first (created in §1; recreate with the
-   command in step 5 if you skipped §1), then in Troubleshooting mode ask:
-   > *"Scale my demo-scale app in openshift-lightspeed to 2 replicas."*
+   command in step 5 if you skipped §1), then in Troubleshooting mode paste:
+
+   ```text
+   Scale my demo-scale app in openshift-lightspeed to 2 replicas.
+   ```
 
    Watch the loop: gpt-oss reads a tool, then `model_finished_without_tools` with an **empty answer** —
    it never commits the write, so the scale doesn't land (`oc get deploy demo-scale … desired=1`) and
@@ -203,11 +224,15 @@ Run the tests below. **After the model switch (step 3), re-run the Health check 
 
 4. **Troubleshoot — on Qwen3 (customer-voice function tests).** Phrase these the way a customer in a
    POC actually would — outcome-oriented, about *their* cluster — not like `oc` commands. They exercise
-   the read-only MCP tools; each is anchored to a real object so there's a verifiable answer:
-   > *"Is everything in the openshift-lightspeed namespace healthy right now?"*
-   > *"My demo-scale app in openshift-lightspeed — is it running, and how many replicas does it have?"*
-   > *"Are any apps in my cluster crash-looping or stuck?"*
-   > *"Something looks off with the qwen3-8b model in lightspeed-llm — can you check it and tell me what's wrong?"*
+   the read-only MCP tools; each is anchored to a real object so there's a verifiable answer (paste any
+   one):
+
+   ```text
+   Is everything in the openshift-lightspeed namespace healthy right now?
+   My demo-scale app in openshift-lightspeed — is it running, and how many replicas does it have?
+   Are any apps in my cluster crash-looping or stuck?
+   Something looks off with the qwen3-8b model in lightspeed-llm — can you check it and tell me what's wrong?
+   ```
 
    > **Name the namespace explicitly.** Qwen3 reasons hard about intent and will sometimes *second-guess*
    > the namespace you named (e.g. answer about `lightspeed-llm` when you asked about `openshift-lightspeed`,
@@ -222,7 +247,9 @@ Run the tests below. **After the model switch (step 3), re-run the Health check 
    oc set image deployment/demo-scale ubi-minimal=registry.access.redhat.com/ubi9/does-not-exist:nope -n openshift-lightspeed
    ```
 
-   > *"My demo-scale app in openshift-lightspeed stopped working — can you tell me why?"*
+   ```text
+   My demo-scale app in openshift-lightspeed stopped working — can you tell me why?
+   ```
 
    ```bash
    # reset it after (back to a good image):
@@ -249,7 +276,9 @@ Run the tests below. **After the model switch (step 3), re-run the Health check 
      --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity
    ```
 
-   > *"Scale my demo-scale app in openshift-lightspeed to 2 replicas."*
+   ```text
+   Scale my demo-scale app in openshift-lightspeed to 2 replicas.
+   ```
 
    **If** the model commits a write tool call, `tool_annotations` gates it with an
    **Approve/Deny** card. This is the **least reliable** beat: even a capable tool-caller often **advises
@@ -489,16 +518,21 @@ content — too low leaves `content` empty (`finish_reason:"length"`).
 
 **Ask mode** — "how do I…" (docs knowledge, no cluster access):
 
-- *"How do I expose my application to users outside the cluster?"*
-- *"How do I make my app automatically scale up when it gets busy?"*
-- *"I pushed a bad update — how do I roll my deployment back to the previous version?"*
-- *"How do I give a teammate read-only access to just my project?"*
+```text
+How do I expose my application to users outside the cluster?
+How do I make my app automatically scale up when it gets busy?
+I pushed a bad update — how do I roll my deployment back to the previous version?
+How do I give a teammate read-only access to just my project?
+```
 
-**Troubleshooting mode** — "what's wrong with my cluster" (live reads via MCP), easiest → hardest:
+**Troubleshooting mode** — "what's wrong with my cluster" (live reads via MCP), easiest → hardest
+(the last one after breaking the app — see step 4):
 
-- *"Is everything in the openshift-lightspeed namespace healthy right now?"*
-- *"Are any apps in my cluster crash-looping or stuck?"*
-- *"My demo-scale app in openshift-lightspeed stopped working — can you tell me why?"* (after breaking it)
+```text
+Is everything in the openshift-lightspeed namespace healthy right now?
+Are any apps in my cluster crash-looping or stuck?
+My demo-scale app in openshift-lightspeed stopped working — can you tell me why?
+```
 
 A good answer names **specific objects from your cluster** — that's proof the MCP read path ran, not
 just the model's training knowledge.
