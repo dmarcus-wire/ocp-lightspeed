@@ -44,6 +44,8 @@ spec:
         # provision.sh replaces the next line with --enable-auto-tool-choice + a
         # model-specific --tool-call-parser (granite|hermes|llama3_json) for agent
         # mode, or drops it for runtimes that enable tools implicitly (e.g. gpt-oss).
+        # It also adds --reasoning-parser (e.g. qwen3) unless --thinking show is set,
+        # so a reasoning model's <think> scratchpad stays out of the visible answer.
         # __TOOL_ARGS__
       resources:
         # Requests must leave headroom for node-reserved capacity + the GPU/NFD/

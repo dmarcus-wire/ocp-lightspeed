@@ -13,6 +13,7 @@
 #   ./provision.sh                  # fully interactive
 #   ./provision.sh --pattern saas --openai-key sk-... --features route,agent-troubleshooting --yes
 #   ./provision.sh --pattern selfhosted --model gpt-oss-20b --instance g6.xlarge --vllm-token xxx --yes
+#   ./provision.sh --pattern selfhosted --model qwen3-8b --thinking show   # reveal Qwen3's reasoning in answers
 #   ./provision.sh --switch         # flip to the other pattern (deletes OLSConfig, applies the other)
 #   ./provision.sh --uninstall      # remove OLSConfig + overlays (keeps operator/infra)
 set -euo pipefail
@@ -40,6 +41,11 @@ CONTEXT_WINDOW="${CONTEXT_WINDOW:-24576}"   # must match infra/60 --max-model-le
 MAX_RESPONSE_TOKENS="${MAX_RESPONSE_TOKENS:-1024}"
 OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 RHOAI_VLLM_TOKEN="${RHOAI_VLLM_TOKEN:-}"
+# Reasoning models (e.g. Qwen3) emit a <think>…</think> chain-of-thought. "hide"
+# (default) adds a vLLM --reasoning-parser so that scratchpad is split into a separate
+# field and the visible answer stays clean; "show" leaves it inline (good for demoing
+# the model reasoning over live cluster data). No effect on non-reasoning models.
+THINKING="${THINKING:-hide}"   # hide | show
 ASSUME_YES="${ASSUME_YES:-false}"
 ACTION="provision"   # provision | switch | uninstall
 
@@ -71,6 +77,7 @@ while [ $# -gt 0 ]; do
     --features)   FEATURES="${2:-}"; shift 2;;
     --openai-key) OPENAI_API_KEY="${2:-}"; shift 2;;
     --vllm-token) RHOAI_VLLM_TOKEN="${2:-}"; shift 2;;
+    --thinking)   THINKING="${2:-}"; shift 2;;
     --switch)     ACTION="switch"; shift;;
     --uninstall)  ACTION="uninstall"; shift;;
     --yes|-y)     ASSUME_YES=true; shift;;
@@ -95,6 +102,19 @@ case "$MODEL" in
   llama*)   TOOL_PARSER="${TOOL_PARSER-llama3_json}";;
   *)        TOOL_PARSER="${TOOL_PARSER-}";;
 esac
+
+# Reasoning-parser selection (controls whether the <think> scratchpad is hidden from
+# the answer — see THINKING above). Only families with a known vLLM parser map here;
+# everything else gets none. --thinking show forces it off even for those families.
+case "$THINKING" in
+  hide|show) ;;
+  *) die "invalid --thinking '$THINKING' (expected: hide | show)";;
+esac
+case "$MODEL" in
+  qwen*) REASONING_PARSER_DEFAULT="qwen3";;   # vLLM splits Qwen3 <think>…</think> into reasoning_content
+  *)     REASONING_PARSER_DEFAULT="";;
+esac
+if [ "$THINKING" = "hide" ]; then REASONING_PARSER="$REASONING_PARSER_DEFAULT"; else REASONING_PARSER=""; fi
 
 # --------------------------------------------------------------------------- #
 # Preflight — uses the CURRENT oc session; never asks for URL/password
@@ -285,10 +305,15 @@ apply_model_serving() {
   # Replace the __TOOL_ARGS__ marker line with tool-calling flags for models that
   # need them; drop the marker otherwise (runtime handles tools implicitly). awk
   # keeps this portable (no GNU-only sed newline-in-replacement).
-  is="$(printf "%s" "$is" | awk -v p="$TOOL_PARSER" '
-    /__TOOL_ARGS__/ { if (p != "") { print "        - \"--enable-auto-tool-choice\""; print "        - \"--tool-call-parser=" p "\"" } next }
+  is="$(printf "%s" "$is" | awk -v p="$TOOL_PARSER" -v r="$REASONING_PARSER" '
+    /__TOOL_ARGS__/ {
+      if (p != "") { print "        - \"--enable-auto-tool-choice\""; print "        - \"--tool-call-parser=" p "\"" }
+      if (r != "") { print "        - \"--reasoning-parser=" r "\"" }
+      next
+    }
     { print }')"
   [ -n "$TOOL_PARSER" ] && ok "tool-calling enabled (--tool-call-parser=${TOOL_PARSER}) for agent mode."
+  [ -n "$REASONING_PARSER" ] && ok "reasoning hidden from answers (--reasoning-parser=${REASONING_PARSER}); pass --thinking show to reveal it."
   printf "%s\n" "$sr" | oc apply -f -
   printf "%s\n" "$is" | oc apply -f -
 }
