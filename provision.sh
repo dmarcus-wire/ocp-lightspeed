@@ -15,6 +15,7 @@
 #   ./provision.sh --pattern selfhosted --model gpt-oss-20b --instance g6.xlarge --vllm-token xxx --yes
 #   ./provision.sh --pattern selfhosted --model qwen3-8b --thinking show   # reveal Qwen3's reasoning in answers
 #   ./provision.sh --switch         # flip to the other pattern (deletes OLSConfig, applies the other)
+#   ./provision.sh --check          # read-only readiness gate — run before prompting at each demo stage
 #   ./provision.sh --uninstall      # remove OLSConfig + overlays (keeps operator/infra)
 set -euo pipefail
 
@@ -47,7 +48,7 @@ RHOAI_VLLM_TOKEN="${RHOAI_VLLM_TOKEN:-}"
 # the model reasoning over live cluster data). No effect on non-reasoning models.
 THINKING="${THINKING:-hide}"   # hide | show
 ASSUME_YES="${ASSUME_YES:-false}"
-ACTION="provision"   # provision | switch | uninstall
+ACTION="provision"   # provision | switch | check | uninstall
 
 # --------------------------------------------------------------------------- #
 # Pretty output
@@ -79,6 +80,7 @@ while [ $# -gt 0 ]; do
     --vllm-token) RHOAI_VLLM_TOKEN="${2:-}"; shift 2;;
     --thinking)   THINKING="${2:-}"; shift 2;;
     --switch)     ACTION="switch"; shift;;
+    --check)      ACTION="check"; shift;;
     --uninstall)  ACTION="uninstall"; shift;;
     --yes|-y)     ASSUME_YES=true; shift;;
     -h|--help)    grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
@@ -462,7 +464,37 @@ do_uninstall() {
 }
 
 # --------------------------------------------------------------------------- #
+# Readiness gate — read-only "am I ready to prompt?" check for between demo
+# stages. Pattern-agnostic: OLSConfig overallStatus=Ready already implies the
+# configured model endpoint is reachable (OLS validates its provider). Exits 0
+# when ready, 1 otherwise, so it's scriptable. For deep post-restart recovery
+# use docs/HEALTH_CHECK.md instead.
+# --------------------------------------------------------------------------- #
+do_check() {
+  command -v oc >/dev/null 2>&1 || die "oc not found in PATH"
+  oc whoami >/dev/null 2>&1 || die "not logged in. In the Web Terminal you're already logged in; otherwise run 'oc login'."
+  local ols dm app pred
+  ols=$(oc get olsconfig cluster -o jsonpath='{.status.overallStatus}' 2>/dev/null)
+  dm=$(oc get olsconfig cluster -o jsonpath='{.spec.ols.defaultModel}' 2>/dev/null)
+  app=$(oc get pods -n "$LS_NS" --no-headers 2>/dev/null | grep -c 'app-server.*Running')
+  pred=$(oc get pods -n "$LLM_NS" --no-headers 2>/dev/null | grep -c ' 2/2 .*Running')
+  hr
+  printf "    OLSConfig overallStatus : %s\n" "${ols:-<none>}"
+  printf "    default model           : %s\n" "${dm:-<none>}"
+  printf "    app-server Running      : %s\n" "$app"
+  printf "    predictor pods 2/2      : %s   (0 = SaaS / no model pod — expected)\n" "$pred"
+  hr
+  if [ "$ols" = "Ready" ] && [ "$app" -ge 1 ]; then
+    ok "READY to prompt."
+    exit 0
+  fi
+  warn "NOT READY — wait a minute and re-run; after a sandbox restart see docs/HEALTH_CHECK.md."
+  exit 1
+}
+
+# --------------------------------------------------------------------------- #
 main() {
+  [ "$ACTION" = "check" ] && do_check   # read-only; skips the preflight confirm + exits
   preflight
   case "$ACTION" in
     switch)    do_switch;;

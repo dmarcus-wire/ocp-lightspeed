@@ -26,11 +26,33 @@ git clone https://github.com/dmarcus-wire/ocp-lightspeed.git && cd ocp-lightspee
 ./provision.sh            # guided: pick pattern, model, features
 ```
 
-Always verify health before demoing — especially after a sandbox restart:
+**Readiness gate — run before prompting at each stage** (read-only, ~2s; works for SaaS *and*
+self-hosted — `OLSConfig=Ready` already implies the model endpoint is reachable). Simplest, and it
+survives a Web Terminal restart:
 
 ```bash
-oc get olsconfig cluster -o jsonpath='{.status.overallStatus}{"\n"}' -w  # want: Ready
+./provision.sh --check        # prints status + ✅ READY / ⏳ NOT READY; exits 0 when ready
 ```
+
+Not in the repo directory? Paste this equivalent shell function once and call `ready`:
+
+```bash
+ready() {
+  local ols dm app pred
+  ols=$(oc get olsconfig cluster -o jsonpath='{.status.overallStatus}' 2>/dev/null)
+  dm=$(oc get olsconfig cluster -o jsonpath='{.spec.ols.defaultModel}' 2>/dev/null)
+  app=$(oc get pods -n openshift-lightspeed --no-headers 2>/dev/null | grep -c 'app-server.*Running')
+  pred=$(oc get pods -n lightspeed-llm --no-headers 2>/dev/null | grep -c ' 2/2 .*Running')
+  echo "OLSConfig=$ols  model=$dm  app-server-running=$app  predictor-2/2=$pred"
+  { [ "$ols" = Ready ] && [ "$app" -ge 1 ]; } \
+    && echo "✅ READY to prompt" \
+    || echo "⏳ NOT READY — wait a minute and re-run; if it persists, see docs/HEALTH_CHECK.md"
+}
+ready
+```
+
+`predictor-2/2` is `0` for SaaS (no model pod — expected) and `≥1` self-hosted. After a sandbox
+restart, run the full layer-by-layer check in [HEALTH_CHECK.md](HEALTH_CHECK.md) instead.
 
 ---
 
@@ -74,7 +96,8 @@ oc create deployment demo-scale -n openshift-lightspeed \
   --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity
 ```
 
-Then in the console (Lightspeed icon), run the three tests:
+**▶ Before prompting, gate on readiness** — `./provision.sh --check` (or `ready` from §0); want
+`✅ READY` with `model=gpt-4o`. Then in the console (Lightspeed icon), run the three tests:
 
 1. **Ask** (how-to) — doc-grounded answer (Route/Ingress), no cluster access needed:
 
@@ -100,6 +123,10 @@ Then in the console (Lightspeed icon), run the three tests:
    committing the write** — so the scale often doesn't land (`oc get deploy demo-scale … desired=1`)
    and no approval card appears. That ceiling **is the segue to self-hosted** (no per-minute caps,
    your own model) — the write + approval is the §2 payoff. Clean up: `oc delete deployment demo-scale -n openshift-lightspeed`.
+
+**💰 Cost capture (SaaS).** No terminal snapshot here — these tokens are billed by OpenAI. After the
+run, read the exact tokens + dollars at **platform.openai.com → Usage**; that's the hosted figure you
+compare against the self-hosted token total captured in §2.
 
 **Point made:** Ask and Troubleshoot are fast and impressive — but the write test shows a low-tier
 hosted account throttling (gpt-4o) or hesitating (mini), and *every* token and cluster read went to a
@@ -162,7 +189,29 @@ oc logs -n lightspeed-llm deploy/${M}-predictor -c kserve-container -f \
 oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-service-api -f --tail=5
 ```
 
-Run the tests below. **After the model switch (step 3), re-run the Health check before testing again.**
+**▶ Before prompting, gate on readiness** — `./provision.sh --check` (or `ready` from §0); want
+`✅ READY` with `predictor-2/2=1` and `model` = the served model (`gpt-oss-20b` now, `qwen3-8b` after
+step 3). **Re-run it after the step-3 switch** before testing again.
+
+**💰 Cost capture (per mode) — this *is* the cost slide.** Each mode's token cost differs sharply: Ask
+is cheap, but the agent loop ships the **~6k-token MCP tool catalog in every prompt**, so its *prompt*
+tokens balloon. Paste the helper once and take a baseline now; each test below ends with a one-line
+snapshot, and the delta is that mode's cost:
+
+```bash
+vllm_tokens() {   # cumulative prompt / generation / total tokens the live model has served
+  local m; m=$(oc get inferenceservice -n lightspeed-llm -o jsonpath='{.items[0].metadata.name}')
+  oc run tok-$RANDOM --rm -i --restart=Never -n lightspeed-llm \
+     --image=registry.access.redhat.com/ubi9/ubi-minimal -- \
+     curl -s "http://${m}-predictor.lightspeed-llm.svc.cluster.local:8080/metrics" 2>/dev/null \
+   | awk '/^vllm:prompt_tokens_total/{p=$NF} /^vllm:generation_tokens_total/{g=$NF} END{printf "%.0f %.0f %.0f\n",p,g,p+g}'
+}
+read P0 G0 T0 < <(vllm_tokens)     # baseline, before the Ask test
+```
+
+⚠️ The step-3 model switch **resets** the counter (new pod) — so step 3 re-baselines. Ask is read on
+gpt-oss; the agent modes on qwen3-8b. The agent-vs-Ask prompt-token gap (the tool catalog) dwarfs any
+model difference, so the comparison still lands.
 
 1. **Ask — on `gpt-oss-20b`.** In Ask mode, paste:
 
@@ -172,6 +221,12 @@ Run the tests below. **After the model switch (step 3), re-run the Health check 
 
    → a correct manifest, generated entirely on your L4. gpt-oss-20b is a strong single-shot reasoning
    model and Ask mode shines.
+
+   **💰 snapshot — Ask cost:**
+
+   ```bash
+   read P1 G1 T1 < <(vllm_tokens); echo "Ask (gpt-oss): $((T1-T0)) tokens  (prompt $((P1-P0)) / gen $((G1-G0)))"
+   ```
 
 2. **(Optional) Show why model choice matters — the fumble.** Skip for the happy path; include it for
    a great "here's the trap" test. It's the **same prompt you'll use on Qwen3 in step 4**, so it sets
@@ -222,6 +277,12 @@ Run the tests below. **After the model switch (step 3), re-run the Health check 
    command above (idempotent: it waits for qwen3-8b, then re-creates the OLSConfig). Then hard-refresh
    the console.
 
+   **💰 re-baseline — the new model is a fresh pod with a zeroed counter:**
+
+   ```bash
+   read P2 G2 T2 < <(vllm_tokens)     # baseline on qwen3-8b, before the agent tests
+   ```
+
 4. **Troubleshoot — on Qwen3 (customer-voice function tests).** Phrase these the way a customer in a
    POC actually would — outcome-oriented, about *their* cluster — not like `oc` commands. They exercise
    the read-only MCP tools; each is anchored to a real object so there's a verifiable answer (paste any
@@ -267,6 +328,12 @@ Run the tests below. **After the model switch (step 3), re-run the Health check 
      `tool_results=0`), suspect the OLS version/runtime, not your prompt; on v1.0.x, granite executes
      and is the right model.
 
+   **💰 snapshot — agent/Troubleshoot cost** (note the prompt-token jump vs Ask — that's the tool catalog):
+
+   ```bash
+   read P3 G3 T3 < <(vllm_tokens); echo "Troubleshoot (qwen3): $((T3-T2)) tokens  (prompt $((P3-P2)) ← tool catalog / gen $((G3-G2)))"
+   ```
+
 5. **Write / approval test — on Qwen3 (best-effort).** Recreate the target if it's gone, then ask the
    scale prompt:
 
@@ -286,6 +353,14 @@ Run the tests below. **After the model switch (step 3), re-run the Health check 
    not appear every time. Treat it as "show the safety gate *exists*," not a guaranteed demo. (Don't
    target an operator-managed deployment like `lightspeed-console-plugin` — the agent correctly refuses
    those.)
+
+   **💰 snapshot — write cost + the self-hosted total:**
+
+   ```bash
+   read P4 G4 T4 < <(vllm_tokens)
+   echo "Write (qwen3):           $((T4-T3)) tokens"
+   echo "Self-hosted TOTAL (qwen3): $((T4-T2)) tokens  ← the number for the cost slide"
+   ```
 
 **Model & version recommendation (the lesson).** **Ask mode is the guaranteed beat** — every model
 answers well (gpt-oss-20b is a strong single-shot reasoner). For **Troubleshooting/agent mode**, the
@@ -324,26 +399,19 @@ cost, and trust. The four pillars:
 ### Quantify the cost story (token capture)
 
 Costs have **opposite shapes**: hosted is *variable* (tokens × price); self-hosted is *fixed* (GPU
-$/hr, any volume). Measure the demo's actual tokens to draw the break-even.
+$/hr, any volume). You already captured the demo's actual tokens with the **per-mode snapshots in §2**
+(the `vllm_tokens` helper + the `💰` lines after each test). Drop the deltas into a small table — the
+shape of it is the whole story:
 
-**Self-hosted — tokens served (vLLM `/metrics`).** Paste this helper once, then call it before and
-after a run; the delta is what the demo consumed:
+| Mode (self-hosted) | Tokens | Why |
+| --- | --- | --- |
+| Ask | small | one prompt, one answer — no tools |
+| **Troubleshoot (agent)** | **much larger** | the **~6k-token MCP tool catalog rides in every prompt**, ×N tool rounds |
+| Write / approval | small–medium | a round or two, then the gated action |
 
-```bash
-# cumulative prompt/generation/total tokens the model has served
-vllm_tokens() {
-  local m; m=$(oc get inferenceservice -n lightspeed-llm -o jsonpath='{.items[0].metadata.name}')
-  oc run tok-snapshot --rm -i --restart=Never -n lightspeed-llm \
-     --image=registry.access.redhat.com/ubi9/ubi-minimal -- \
-     curl -s "http://${m}-predictor.lightspeed-llm.svc.cluster.local:8080/metrics" 2>/dev/null \
-   | awk '/^vllm:prompt_tokens_total/{p=$NF} /^vllm:generation_tokens_total/{g=$NF} END{printf "%.0f %.0f %.0f\n",p,g,p+g}'
-}
-
-read BP BG BT < <(vllm_tokens)     # snapshot BEFORE the demo
-#   ... run your Ask / Troubleshoot / approval prompts in the console ...
-read AP AG AT < <(vllm_tokens)     # snapshot AFTER
-echo "demo used: prompt=$((AP-BP)) generation=$((AG-BG)) total=$((AT-BT)) tokens"
-```
+The takeaway for the slide: **agent mode is token-heavy on the *prompt* side** (tools, not the answer)
+— which is exactly the steady, high-volume operations workload where a **flat GPU $/hr** beats
+per-token billing.
 
 The counters are cumulative since the pod started, so don't restart the predictor mid-measurement.
 **Cost is the GPU, not the tokens** — a `g6.2xlarge` is a flat ~$/hr (check current AWS pricing),
