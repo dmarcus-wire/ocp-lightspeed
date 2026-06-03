@@ -31,7 +31,7 @@ ALL_FEATURES="route query-filters token-quota agent-troubleshooting"
 
 # Defaults (overridable by flags / env)
 PATTERN="${PATTERN:-}"
-MODEL="${MODEL:-gpt-oss-20b}"
+MODEL="${MODEL:-qwen3-8b}"   # works in agent mode on OLS 1.1.0+ (gpt-oss=Ask-only, granite=agent on v1.0.x)
 INSTANCE="${INSTANCE:-g6.2xlarge}"   # 8 vCPU / 32 GiB, 1x L4 24GB. g6.xlarge (4/16) is too small to schedule a 20B predictor.
 FEATURES="${FEATURES:-}"
 # Self-hosted model tuning. CONTEXT_WINDOW matches the runtime's --max-model-len.

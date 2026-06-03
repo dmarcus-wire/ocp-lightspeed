@@ -114,38 +114,60 @@ oc get pods -n lightspeed-llm -w                                    # want: pred
 oc get olsconfig cluster -o jsonpath='{.status.overallStatus}'      # want: Ready
 ```
 
-**Monitor (optional, 2nd terminal)** — the agent loop is what *proves* the model is calling cluster
-tools (read it live as you prompt):
+> **Why `0/2`, and what the phases mean.** The predictor pod has **two containers** — the vLLM model
+> server plus a KServe queue-proxy-style sidecar that fronts it — so `READY` counts up to `2/2`, not
+> `1/1`. Expect this sequence (the `-w` watch reprints a row on each change, so seeing a status twice
+> is the watch echoing, not a second pod):
+> `Pending` (waiting for the GPU) → `Init:0/1` (pulling + unpacking the modelcar image — the longest
+> step on a cold node) → `PodInitializing` → `0/2`/`1/2 Running` (vLLM loading weights to the GPU,
+> capturing CUDA graphs) → **`2/2 Running`** (both containers up = serving). An OOM, if the model
+> doesn't fit, shows during the `Running` weight-load phase — watch the load log below to catch it.
+
+**Monitor (optional, 2nd terminal)** — two useful tails:
 
 ```bash
+# the model's weight-load (watch during the 0/2 → 2/2 phase; catches an OOM at load)
+oc logs -n lightspeed-llm deploy/<model>-predictor -c kserve-container -f \
+  | grep -iE 'loading|max model len|out of memory|application startup|error'
+# the agent loop — proves the model is actually calling cluster tools (read it live as you prompt)
 oc logs -n openshift-lightspeed deploy/lightspeed-app-server -c lightspeed-service-api -f --tail=5
 ```
 
-Run the tests below. **After the granite switch (step 3), re-run the Health check before testing again.**
+Run the tests below. **After the model switch (step 3), re-run the Health check before testing again.**
 
 1. **Ask — on `gpt-oss-20b`.** *"Write the YAML for a HorizontalPodAutoscaler targeting 70% CPU on a
    deployment named web."* → a correct manifest, generated entirely on your L4. gpt-oss-20b is a
    strong single-shot reasoning model and Ask mode shines.
 
 2. **(Optional) Show why model choice matters — the fumble.** Skip for the happy path; include it for
-   a great "here's the trap" test. It's the **same write prompt you'll use on granite in step 5**, so
-   it sets up a clean before/after. Make sure `demo-scale` exists first (created in §1; recreate with
-   the command in step 5 if you skipped §1), then in Troubleshooting mode ask:
+   a great "here's the trap" test. It's the **same prompt you'll use on Qwen3 in step 4**, so it sets
+   up a clean before/after. Make sure `demo-scale` exists first (created in §1; recreate with the
+   command in step 5 if you skipped §1), then in Troubleshooting mode ask:
    > *"Scale my demo-scale app in openshift-lightspeed to 2 replicas."*
 
    Watch the loop: gpt-oss reads a tool, then `model_finished_without_tools` with an **empty answer** —
    it never commits the write, so the scale doesn't land (`oc get deploy demo-scale … desired=1`) and
    no approval card appears. Its reasoning/harmony format doesn't drive OLS's tool loop on this vLLM
-   build. That's the live motivation for switching — the *same* prompt succeeds on granite in step 5.
+   build. That's the live motivation for switching — the cluster-aware tests succeed on Qwen3 in step 4.
 
-3. **Switch to the validated, tool-tuned model.** Single L4 = one model at a time, so free the GPU
-   first:
+3. **Switch to the tool-calling model that works on your OLS version.** On **OLS 1.1.0+** that's
+   `qwen3-8b` (Red Hat's recommended self-hosted tool-caller — it executes the MCP tools where granite
+   regressed; see the version note in step 4). Single L4 = one model at a time, so free the GPU first:
 
    ```bash
    oc delete inferenceservice gpt-oss-20b -n lightspeed-llm
-   ./provision.sh --switch --pattern selfhosted --model granite-3.3-8b-instruct \
+   ./provision.sh --switch --pattern selfhosted --model qwen3-8b \
      --instance g6.2xlarge --features agent-troubleshooting --vllm-token novalue --yes
    ```
+
+   > **Qwen3 is a reasoning model.** It emits a `<think>…</think>` scratchpad. `provision.sh` defaults
+   > to `--thinking hide` (adds vLLM `--reasoning-parser=qwen3`, so that scratchpad is split out and the
+   > console answer stays clean prose). Add `--thinking show` instead if you *want* the audience to watch
+   > it reason over live cluster data — it streams the thinking (feels more responsive), but the answer
+   > is cluttered. Same model either way; it's purely what the viewer sees.
+   >
+   > **On OLS v1.0.x, use `granite-3.3-8b-instruct` here instead** — it's Red Hat's validated tool model
+   > and drives tools reliably on 1.0.x (and isn't a reasoning model, so no `--thinking` needed).
 
    **Confirm the switch completed before testing.** `--switch` deletes the OLSConfig first and only
    re-creates it once the new model is `Ready` — so if the script is interrupted (e.g. the cluster
@@ -154,22 +176,27 @@ Run the tests below. **After the granite switch (step 3), re-run the Health chec
 
    ```bash
    oc get olsconfig cluster -o jsonpath='overall={.status.overallStatus} model={.spec.ols.defaultModel}{"\n"}'
-   #   want: overall=Ready model=granite-3-3-8b-instruct   (NOT "cluster not found")
+   #   want: overall=Ready model=qwen3-8b   (NOT "cluster not found")
    oc get pods -n openshift-lightspeed     # lightspeed-app-server back, 3/3 Running
-   oc get pods -n lightspeed-llm           # granite-3-3-8b-instruct-predictor 2/2 Running
+   oc get pods -n lightspeed-llm           # qwen3-8b-predictor 2/2 Running
    ```
 
    If the OLSConfig is missing or still says gpt-oss-20b, the switch didn't finish — just re-run the
-   command above (idempotent: it waits for granite, then re-creates the OLSConfig). Then hard-refresh
+   command above (idempotent: it waits for qwen3-8b, then re-creates the OLSConfig). Then hard-refresh
    the console.
 
-4. **Troubleshoot — on granite (customer-voice function tests).** Phrase these the way a customer in a
+4. **Troubleshoot — on Qwen3 (customer-voice function tests).** Phrase these the way a customer in a
    POC actually would — outcome-oriented, about *their* cluster — not like `oc` commands. They exercise
    the read-only MCP tools; each is anchored to a real object so there's a verifiable answer:
    > *"Is everything in the openshift-lightspeed namespace healthy right now?"*
    > *"My demo-scale app in openshift-lightspeed — is it running, and how many replicas does it have?"*
    > *"Are any apps in my cluster crash-looping or stuck?"*
-   > *"Something looks off with the granite model in lightspeed-llm — can you check it and tell me what's wrong?"*
+   > *"Something looks off with the qwen3-8b model in lightspeed-llm — can you check it and tell me what's wrong?"*
+
+   > **Name the namespace explicitly.** Qwen3 reasons hard about intent and will sometimes *second-guess*
+   > the namespace you named (e.g. answer about `lightspeed-llm` when you asked about `openshift-lightspeed`,
+   > deciding you "probably meant" the one with the model pod). It still executes the tools correctly — just
+   > on the namespace it talked itself into. Naming the namespace in the prompt (as above) keeps it on target.
 
    **The killer POC moment — break it, then ask why.** Deliberately break the app, then ask in plain
    language (the agent reads the events and explains the `ImagePullBackOff`):
@@ -187,25 +214,29 @@ Run the tests below. **After the granite switch (step 3), re-run the Health chec
      objects** (actual pod names, conditions, counts) — proof the MCP read path ran.
    - **Fail (advice)** — `tool_results=0` and a generic *"use `oc get pods …`"* answer: the model
      didn't call the tool.
-   - ⚠️ **OLS-version-sensitive.** These executed cleanly on operator **v1.0.x**; on **v1.1.0** granite
-     tends to return the advice form (the regression in Lessons learned). If you get advice with tools
-     attached (`tool_defs` > 0, `tool_results=0`), it's the OLS version — not your prompt or config.
+   - ⚠️ **Model + OLS-version-sensitive.** On **v1.1.0**, `qwen3-8b` executes these cleanly
+     (`tool_results` > 0, names real objects), while `granite-3.3-8b` returns the advice form — the
+     regression in Lessons learned. If *Qwen3* gives advice with tools attached (`tool_defs` > 0,
+     `tool_results=0`), suspect the OLS version/runtime, not your prompt; on v1.0.x, granite executes
+     and is the right model.
 
-5. **Write / approval test — on granite (best-effort).** Recreate the target if gone
+5. **Write / approval test — on Qwen3 (best-effort).** Recreate the target if gone
    (`oc create deployment demo-scale -n openshift-lightspeed --image=registry.access.redhat.com/ubi9/ubi-minimal -- sleep infinity`),
    then: *"Scale my demo-scale app in openshift-lightspeed to 2 replicas."* **If** the model commits a
    write tool call, `tool_annotations` gates it with an
-   **Approve/Deny** card. This is the **least reliable** beat: small models often **advise instead of
-   acting** on mutating operations, and v1.1.0 doesn't execute tools at all — so the card may not
-   appear. Treat it as "show the safety gate *exists*," not a guaranteed demo. (Don't target an
-   operator-managed deployment like `lightspeed-console-plugin` — the agent correctly refuses those.)
+   **Approve/Deny** card. This is the **least reliable** beat: even a capable tool-caller often **advises
+   instead of acting** on mutating operations (reads are far more reliable than writes) — so the card may
+   not appear every time. Treat it as "show the safety gate *exists*," not a guaranteed demo. (Don't
+   target an operator-managed deployment like `lightspeed-console-plugin` — the agent correctly refuses
+   those.)
 
-**Model & version recommendation (the lesson).** **Ask mode is the guaranteed beat** — both models
-answer well (gpt-oss-20b is a strong single-shot reasoner). For **Troubleshooting/agent mode**,
-`granite-3.3-8b-instruct` is Red Hat's validated, tool-tuned choice — but **agent tool-execution is
-sensitive to the OLS operator version**: it ran cleanly on v1.0.x and regressed on v1.1.0 (see Lessons
-learned). If the agent demo matters, verify/pin the operator version. See the README
-["Which model?"](../README.md#model-matrix-self-hosted).
+**Model & version recommendation (the lesson).** **Ask mode is the guaranteed beat** — every model
+answers well (gpt-oss-20b is a strong single-shot reasoner). For **Troubleshooting/agent mode**, the
+right model tracks the **OLS operator version**: on **v1.1.0+** use `qwen3-8b` (it executes the MCP
+tools); on **v1.0.x** use `granite-3.3-8b-instruct` (Red Hat's validated, tool-tuned model, which
+regressed on v1.1.0 — see Lessons learned). Agent tool-execution is OLS-version-sensitive, so if the
+agent demo matters, pin the operator to a version you've verified with your chosen model. See the
+README ["Which model?"](../README.md#model-matrix-self-hosted).
 
 **Point made:** **Ask** is identical to SaaS and rock-solid; cluster-aware **Troubleshooting** works
 when the OLS version cooperates — and either way, **no token billing, no rate limits, and nothing
@@ -285,7 +316,7 @@ price, annualize, and compare to the GPU's yearly cost: the business case in one
 | Provision SaaS | ~3–5 min | ~1–2 min |
 | Switch self-hosted → SaaS | ~1–2 min | ~1–2 min |
 | Switch SaaS → self-hosted (GPU stack already up) | ~8–12 min (model pull) | ~3–4 min (image cached) |
-| Switch model (e.g. gpt-oss → granite) | ~8–12 min (pull) | ~3–4 min |
+| Switch model (e.g. gpt-oss → qwen3-8b) | ~8–12 min (pull) | ~3–4 min |
 | app-server reload after a patch | ~30–60 s | — |
 | Ask query | ~5–30 s | — |
 | Agent (multi-step) query | ~30 s–2 min | — |
@@ -361,24 +392,36 @@ the reference for what broke and why.
   fumbled them.)
 - **Console hangs on `...`** — a verbose model can run past the console's patience; cap answers with
   `maxTokensForResponse`.
-- **Model choice dominates agent reliability** — gpt-oss-20b bails (empty answers); granite drives
-  the loop. Validated/tool-tuned beats bigger.
+- **Model choice dominates agent reliability** — gpt-oss-20b bails (empty answers); on the current
+  operator `qwen3-8b` drives the tool loop where `granite-3.3-8b` won't (see the version note below).
+  The model's tool-calling behavior, not its size, decides it.
+- **Reasoning models leak their `<think>` into the answer — split it server-side.** Qwen3 emits a
+  `<think>…</think>` scratchpad. Without a reasoning parser it renders verbatim in the console (ugly
+  for a demo); adding vLLM `--reasoning-parser=qwen3` routes it to a separate field so the visible
+  answer is clean. `provision.sh` does this by default for `qwen*` (`--thinking hide`); `--thinking
+  show` leaves it inline. Hiding it doesn't make the model faster — it still generates the same
+  reasoning, you just stop seeing it stream, which can *feel* slower (quiet gap, then the full answer).
 - **SaaS rate-limits agent mode** — a `429 Too Many Requests` (distinct from the billing
   `insufficient_quota`) is a per-minute **rate limit**. New OpenAI accounts start in a low usage tier
   (requests/tokens-per-minute), and agent mode fires *many sequential* chat/completions calls — one
   per tool round — which trips the cap. The client retries with backoff, so it eventually completes
   but is slow and janky. The tier rises with usage/payment history (or request an increase). **Self-
   hosted has no per-minute cap** (it's your GPU) — a concrete pillar-2/4 point.
-- **The OLS operator version gates agent tool execution — Ask mode is bulletproof; agent
-  tool-execution depends on the OLS version lining up.** On OLS **v1.0.x** granite executed the MCP
-  tools (real `pods_list` results from the cluster). After the operator **auto-upgraded to v1.1.0**,
-  the *same* model + runtime (hermes parser, `--enable-auto-tool-choice`, tools attached:
-  `tool_defs=5816`, 24 tools loaded) **stopped calling tools** — it answers from the docs/RAG instead
-  (`tool_results=0`, `outcome=llm_stream_stop` on round 1). It's not the config or the runtime — every
-  other variable was identical; only the operator version changed. **Pin the operator**
-  (`installPlanApproval: Manual` + a known-good `startingCSV` in the Subscription) so an auto-upgrade
-  can't silently change agent behavior mid-demo. (v1.1.0 also added `spec.ols.toolFilteringConfig` and
-  `spec.ols.mcpServer` — investigate before relying on agent mode on a new OLS version.)
+- **The OLS operator version + model together gate agent tool execution — Ask mode is bulletproof;
+  agent tool-execution depends on the model and the OLS version lining up.** On OLS **v1.0.x** granite
+  executed the MCP tools (real `pods_list` results from the cluster). After the operator **auto-upgraded
+  to v1.1.0**, the *same* model + runtime (hermes parser, `--enable-auto-tool-choice`, tools attached:
+  `tool_defs=5816`, 24 tools loaded) **stopped calling tools** — granite answered from the docs/RAG
+  instead (`tool_results=0`, `outcome=llm_stream_stop` on round 1). It's not the config or the runtime —
+  every other variable was identical; only the operator version changed. **The fix that worked: swap the
+  agent model to `qwen3-8b`** — a stronger tool-caller (Red Hat's recommendation for self-hosted tool
+  calling) drives v1.1.0's loop where granite won't (verified: `tool_results` climbing across
+  `after_tool_execution` rounds, answers naming real cluster objects). Two takeaways: (1) on v1.1.0 use
+  Qwen3 for agent mode; (2) cluster interaction is **Technology Preview**, so behavior shifts across
+  versions — **pin the operator** (`installPlanApproval: Manual` + a known-good `startingCSV` in the
+  Subscription) so an auto-upgrade can't silently change agent behavior mid-demo, and re-verify your
+  model whenever you do bump it. (v1.1.0 also added `spec.ols.toolFilteringConfig`, a hybrid-RAG tool
+  filter — it only *narrows* the tool set, so it's not the lever here.)
 
 ### Ops
 
@@ -462,7 +505,8 @@ watch "oc get machines -n openshift-machine-api | grep gpu; \
 **`InferenceService` not `Ready`.** Check `oc logs -n lightspeed-llm -l serving.kserve.io/inferenceservice=<model>`
 (add `--previous` if it's crash-looping). KV-cache OOM at startup → see the crash-loop entry below.
 vLLM "unsupported model / unknown architecture" → the RHOAI runtime is too old for that model; fall
-back to `--model granite-3.3-8b-instruct` (known-good, still tool-calling capable).
+back to a model the runtime knows (`--model qwen3-8b`, or `granite-3.3-8b-instruct` — both serve on
+this stack; for *agent* mode pick the one that matches your OLS version, see "Which model?").
 
 **OLSConfig `NotReady`, `ApiReady=False`, app-server `2/3`, logs show "LLM connection error".**
 The app-server can't reach the model. KServe RawDeployment creates a **headless** predictor Service
@@ -538,6 +582,7 @@ torn down first. If a live update is already wedged, free the GPU by deleting th
 `oc delete pod -n lightspeed-llm <old-predictor-pod>`.
 
 **Want a faster, friction-free model?** A 20B reasoning model on a single L4 is slow for interactive
-chat and tight on context for agent mode. `--model granite-3.3-8b-instruct` has a large context, is
-~2-3× faster on an L4, and still does tool-calling — the dependable choice for live demos. Keep
-gpt-oss-20b for the "self-hosted reasoning model" story when latency isn't on the clock.
+chat and tight on context for agent mode. For an 8B that fits comfortably and is ~2-3× faster on an L4:
+`--model qwen3-8b` is the dependable agent choice on OLS 1.1.0+ (executes the MCP tools); `--model
+granite-3.3-8b-instruct` is the validated, non-reasoning alternative (great on v1.0.x, and for Ask on
+any version). Keep gpt-oss-20b for the "self-hosted reasoning model" story when latency isn't on the clock.

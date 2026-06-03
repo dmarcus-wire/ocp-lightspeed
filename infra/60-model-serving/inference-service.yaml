@@ -23,7 +23,7 @@ spec:
       runtime: vllm-runtime
       # Red Hat validated model as a ModelCar OCI image (public quay catalog,
       # no pull secret needed). Swap the tag to change models (see README matrix):
-      #   granite-3.3-8b-instruct | llama-3.1-8b-instruct | qwen3-14b | gpt-oss-20b ...
+      #   qwen3-8b | granite-3.3-8b-instruct | llama-3.1-8b-instruct | qwen3-14b | gpt-oss-20b ...
       storageUri: oci://quay.io/redhat-ai-services/modelcar-catalog:gpt-oss-20b
       args:
         # served-model-name MUST match the OLSConfig models[].name in the overlay.

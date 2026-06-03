@@ -15,8 +15,9 @@ toggleable extras: a Route, query redaction, token quotas, and cluster interacti
 
 **The docs, in order:**
 
-- **[docs/DEMO.md](docs/DEMO.md)** — the guided walkthrough: provision → SaaS → self-hosted (the
-  gpt-oss→granite pivot) → business value → lessons. **Start here to run or present the demo.**
+- **[docs/DEMO.md](docs/DEMO.md)** — the guided walkthrough: provision → SaaS → self-hosted (picking
+  a model that executes tools on your OLS version) → business value → lessons. **Start here to run or
+  present the demo.**
 - **This README** — reference: prerequisites, the quick start, which model to pick, using your own
   OpenAI key, and switching. (Failure modes & fixes live in DEMO.md's *Lessons learned*.)
 - **[docs/HEALTH_CHECK.md](docs/HEALTH_CHECK.md)** — verify/recover the stack after a sandbox restart.
@@ -123,11 +124,18 @@ Kubernetes **MCP** server to read live state ("why is *this* pod failing?") — 
 
 ## Model matrix (self-hosted)
 
-> **Which model? (read this first.)** Model choice matters more than size for this demo:
+> **Which model? (read this first.)** Model choice matters more than size for this demo, and the
+> right agent model depends on your **Lightspeed operator version**:
 >
-> - **Troubleshooting / agent mode → `granite-3.3-8b-instruct`.** It's Red Hat's validated,
->   tool-tuned model for Lightspeed and drives the MCP tool-loop reliably. *Recommended default for
->   a live showcase.*
+> - **Troubleshooting / agent mode → `qwen3-8b`.** On the current operator (**OLS 1.1.0+**) Qwen3
+>   reliably drives the MCP tool-loop — it executes the cluster tools and answers from live state.
+>   *Recommended default for a live showcase.* It's a reasoning model, so `provision.sh` defaults to
+>   `--thinking hide` (its `<think>` scratchpad is split out of the answer); pass `--thinking show`
+>   to stream the reasoning live instead.
+> - **`granite-3.3-8b-instruct` — Red Hat's validated tool model, but regressed on OLS 1.1.0.** It
+>   drove tools reliably on **v1.0.x**; the v1.1.0 operator stopped executing tools for it (it answers
+>   from docs instead — `tool_results=0`). Still the right pick **if** you've pinned the operator to
+>   v1.0.x; otherwise use Qwen3. (See DEMO.md *Lessons learned* for the full regression write-up.)
 > - **Ask mode / "self-hosted reasoning model" story → `gpt-oss-20b`.** Strong single-shot answers,
 >   but on this RHOAI 2.20 / vLLM stack it's **unreliable in agent mode** (it reads one tool, then
 >   returns an empty answer). Great for Ask, not for Troubleshooting demos.
@@ -140,15 +148,17 @@ tier with `MODEL=` / `INSTANCE=` (or via `provision.sh`); change `infra/60` acco
 
 | Tier | SaaS model | Self-host model (modelcar tag) | AWS GPU instance | Notes |
 | --- | --- | --- | --- | --- |
-| Min (8B) | `gpt-4o-mini` | `granite-3.3-8b-instruct` / `llama-3.1-8b-instruct` | `g6.xlarge` (1×L4) / `g5.2xlarge` (1×A10G) | smallest footprint |
-| **Default** | **`gpt-4o`** | **`gpt-oss-20b`** (MXFP4 ~16 GB) | **`g6.2xlarge` (1×L4, default)** | strong reasoning + tool calling on one GPU |
-| Large | `gpt-4o` | `qwen3-14b` / `granite-4.0-h-small` / `gpt-oss-120b` | `g6e.2xlarge`; 70B/120B → multi-GPU | best tool selection |
+| Min (8B) | `gpt-4o-mini` | `granite-3.3-8b-instruct` / `llama-3.1-8b-instruct` | `g6.xlarge` (1×L4) / `g5.2xlarge` (1×A10G) | smallest footprint; granite agent mode needs OLS v1.0.x |
+| **Agent (default)** | **`gpt-4o`** | **`qwen3-8b`** (bf16 ~15 GB) | **`g6.2xlarge` (1×L4, default)** | **executes MCP tools on OLS 1.1.0** — recommended for Troubleshooting |
+| Ask / reasoning | `gpt-4o` | `gpt-oss-20b` (MXFP4 ~16 GB) | `g6.2xlarge` (1×L4) | strong single-shot answers; unreliable in agent mode |
+| Large | `gpt-4o` | `qwen3-14b` / `granite-4.0-h-small` / `gpt-oss-120b` | `g6e.2xlarge` (L40S); 70B/120B → multi-GPU | best tool selection; 14B won't fit a single L4 |
 
-> **Why `g6.2xlarge`, not `g6.xlarge`, for the 20B default?** Both are a single L4 (24 GB
+> **Why `g6.2xlarge`, not `g6.xlarge`, for the default?** Both are a single L4 (24 GB
 > VRAM), but `g6.xlarge` is only 4 vCPU / 16 GiB — after node-reserved capacity and the
 > GPU/NFD/monitoring daemonsets, the predictor's requests can't be satisfied and it stays
 > `Pending` ("Insufficient cpu/memory"). `g6.2xlarge` (8 vCPU / 32 GiB) leaves headroom for
-> vLLM and weight loading. An 8B model (Min tier) fits comfortably on `g6.xlarge`.
+> vLLM and weight loading. A small 8B (e.g. `granite-3.3-8b-instruct`) can fit `g6.xlarge`, but
+> `qwen3-8b` (bf16 ~15 GB weights) and the 20B want the `g6.2xlarge` host headroom.
 
 ---
 
@@ -184,7 +194,7 @@ Expected output `Ready gpt-4o`.
 > **Privacy:** in SaaS, your questions — and in Troubleshooting/agent mode, the **live cluster data** the MCP
 > tools read — are sent to OpenAI. That's the trade-off vs. self-hosted (which keeps everything on-cluster).
 
-Switch back to self-hosted any time: `./provision.sh --switch --pattern selfhosted --model granite-3.3-8b-instruct --yes`.
+Switch back to self-hosted any time: `./provision.sh --switch --pattern selfhosted --model qwen3-8b --yes`.
 
 ## Switching, uninstalling
 
